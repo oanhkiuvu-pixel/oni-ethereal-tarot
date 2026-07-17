@@ -1,0 +1,2456 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <meta name="tarot-build" content="2026-01-31-01">
+    <title>Oni Ethereal Tarot</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&display=swap" rel="stylesheet">
+    <!-- MediaPipe Hands -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <!-- Markdown Renderer -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/lib/marked.umd.js" crossorigin="anonymous"></script>
+    
+    <style>
+        :root {
+            --card-width: clamp(120px, 20vw, 200px);
+            --card-height: calc(var(--card-width) * 1.75);
+            --bg-dark: #030303;
+            --accent-gold: #f5f5f5;
+            --accent-glow: rgba(255, 255, 255, 0.55);
+        }
+
+        @media (max-width: 768px) and (orientation: portrait) {
+            :root {
+                --card-width: clamp(92px, 24vw, 150px);
+            }
+        }
+
+        @media (max-width: 480px) and (orientation: portrait) {
+            :root {
+                --card-width: clamp(86px, 26vw, 140px);
+            }
+        }
+
+        @media (orientation: landscape) and (max-height: 520px) {
+            :root {
+                --card-width: clamp(96px, 26vh, 140px);
+            }
+        }
+
+        /* Intro Animation Class - if needed, but we will use JS interpolation */
+        
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: var(--bg-dark);
+            font-family: 'Times New Roman', Times, serif;
+            color: #eee;
+            user-select: none;
+        }
+
+        /* Background Effects */
+        #stars-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            opacity: 0.8;
+        }
+
+        #fog-layer {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 40%;
+            background: linear-gradient(to top, rgba(10,10,30, 0.9), transparent);
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        #asset-loader {
+            position: fixed;
+            inset: 0;
+            z-index: 2000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            background: rgba(5, 5, 16, 0.92);
+            backdrop-filter: blur(6px);
+            pointer-events: auto;
+        }
+
+        #asset-progress-container {
+            width: min(320px, 80vw);
+            height: 8px;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 999px;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 0 12px rgba(255, 255, 255, 0.08);
+        }
+
+        #asset-progress-bar {
+            width: 0%;
+            height: 100%;
+            background: linear-gradient(90deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.95));
+            box-shadow: 0 0 10px rgba(255, 255, 255, 0.35);
+            transition: width 0.15s linear;
+        }
+
+        /* Main Game Container */
+        #game-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            perspective: 1200px; /* Increased perspective for deeper look */
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* 3D Scene for Cards */
+        #scene {
+            width: 100%;
+            height: 60vh;
+            position: relative;
+            transform-style: preserve-3d;
+            /* removed transition, we handle it in JS loop */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Card Styles */
+        .card-wrapper {
+            position: absolute;
+            width: var(--card-width);
+            height: var(--card-height);
+            transform-style: preserve-3d;
+            transition: transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94), box-shadow 0.3s;
+            cursor: pointer;
+            border-radius: 15px;
+        }
+
+        .card-wrapper.selected {
+            box-shadow: 0 0 30px var(--accent-glow);
+            z-index: 100;
+        }
+
+        .card-inner {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            text-align: center;
+            transition: transform 0.8s;
+            transform-style: preserve-3d;
+            border-radius: 15px;
+        }
+
+        .card-wrapper.flipped .card-inner {
+            transform: rotateY(180deg);
+        }
+
+        .card-face {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            backface-visibility: hidden;
+            border-radius: 15px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.5);
+            overflow: hidden;
+            border: 2px solid #333;
+        }
+
+        .card-back {
+            background: repeating-linear-gradient(
+                45deg,
+                #1a1a2e,
+                #1a1a2e 10px,
+                #16213e 10px,
+                #16213e 20px
+            );
+            background-image: url('https://www.transparenttextures.com/patterns/black-thread.png'); /* Fallback or simple pattern */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        /* Elaborate back design using CSS pseudo-elements */
+        .card-back::after {
+            content: '✦';
+            font-size: 3rem;
+            color: rgba(255, 255, 255, 0.35);
+            border: 2px solid rgba(255, 255, 255, 0.35);
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .card-front {
+            background-color: #fff;
+            transform: rotateY(180deg);
+            background-size: cover;
+            background-position: center;
+        }
+
+        /* UI Overlay */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 20;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        #header {
+            text-align: center;
+            text-shadow: 0 0 10px var(--accent-gold);
+            margin-top: 20px;
+        }
+        
+        h1 {
+            margin: 0;
+            font-weight: 300;
+            letter-spacing: 5px;
+            color: var(--accent-gold);
+        }
+
+        #status-text {
+            text-align: center;
+            font-size: 1.2rem;
+            color: #aaa;
+            margin-top: 10px;
+            text-shadow: 0 0 5px black;
+        }
+
+        #controls {
+            pointer-events: auto;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+
+        .btn {
+            background: transparent;
+            border: 1px solid var(--accent-gold);
+            color: var(--accent-gold);
+            padding: 10px 30px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            background: rgba(0,0,0,0.5);
+            border-radius: 30px;
+        }
+
+        .btn:hover {
+            background: var(--accent-gold);
+            color: #000;
+            box-shadow: 0 0 20px var(--accent-glow);
+        }
+
+        #webcam-preview {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            width: 160px;
+            height: 120px;
+            border: 1px solid var(--accent-gold);
+            opacity: 0.5;
+            border-radius: 10px;
+            transform: scaleX(-1); /* Mirror */
+            z-index: 100;
+            /* Camera preview is intentionally hidden from the UI.
+               The element stays in the DOM (display:none keeps it rendering
+               frames off-screen) so MediaPipe hand-gesture detection keeps
+               running in the background. */
+            display: none;
+        }
+
+        #interpretation-modal {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 80%;
+            max-width: 800px;
+            max-height: 80%;
+            background: rgba(10, 10, 20, 0.95);
+            border: 1px solid var(--accent-gold);
+            padding: 30px;
+            border-radius: 20px;
+            color: #eee;
+            overflow-y: auto;
+            display: none; /* Hidden by default */
+            pointer-events: auto;
+            box-shadow: 0 0 50px rgba(0,0,0,0.8);
+            z-index: 50;
+        }
+
+        #interpretation-content {
+            line-height: 1.6;
+            font-size: 1.1rem;
+        }
+        
+        #interpretation-content h3 {
+            color: var(--accent-gold);
+            border-bottom: 1px solid #333;
+            padding-bottom: 10px;
+        }
+
+        #token-input-container {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            pointer-events: auto;
+            z-index: 100;
+        }
+        
+        #api-token {
+            background: rgba(0,0,0,0.5);
+            border: 1px solid #555;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 5px;
+            width: 150px;
+            transition: width 0.3s;
+        }
+        
+        #api-token:focus {
+            width: 300px;
+            border-color: var(--accent-gold);
+            outline: none;
+        }
+
+        /* Hand Gesture Guide */
+            #gesture-guide {
+                position: absolute;
+                bottom: 150px;
+                left: 50%;
+                transform: translateX(-50%);
+                display: flex;
+                gap: 20px;
+                opacity: 0;
+                transition: opacity 0.5s;
+                pointer-events: none;
+                width: 100%;
+                justify-content: center;
+            }
+        
+        .guide-zone {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 30%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            color: rgba(255, 255, 255, 0.55);
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none; /* Ensure no blocking */
+        }
+        
+        #zone-left { left: 0; justify-content: flex-start; padding-left: 50px; }
+        #zone-right { right: 0; justify-content: flex-end; padding-right: 50px; }
+        #zone-center { 
+            left: 30%; 
+            width: 40%; 
+            align-items: flex-end;
+            padding-bottom: 180px;
+        }
+
+        .guide-zone.active {
+            opacity: 1;
+            text-shadow: 0 0 20px var(--accent-gold);
+        }
+        
+        /* New Pulse Animation */
+        @keyframes pulseRing {
+            0% { transform: translate(-50%, -50%) scale(0.5); opacity: 1; border-width: 5px; }
+            100% { transform: translate(-50%, -50%) scale(2.0); opacity: 0; border-width: 0px; }
+        }
+        
+        .guide-icon {
+            width: 60px;
+            height: 60px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            border: 1px solid transparent;
+        }
+        
+        .guide-icon.active {
+            border-color: var(--accent-gold);
+            background: rgba(255, 255, 255, 0.18);
+            box-shadow: 0 0 15px var(--accent-glow);
+            transform: scale(1.2);
+        }
+
+        /* Cursor & Particles */
+        #hand-cursor {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--accent-gold);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 1000;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 15px var(--accent-glow);
+            transition: width 0.2s, height 0.2s, background-color 0.2s;
+            display: none; /* Hidden until hand detected */
+        }
+        
+        /* Removed grabbing state as requested */
+        /* #hand-cursor.grabbing { ... } */
+
+        .cursor-trail {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            background: var(--accent-glow);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 999;
+            opacity: 0.8;
+            animation: fadeTrail 0.5s forwards;
+        }
+
+        @keyframes fadeTrail {
+            to { opacity: 0; transform: scale(0.2); }
+        }
+
+        .particle {
+            position: absolute;
+            width: 4px;
+            height: 4px;
+            background: #ffffff;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 2001;
+            animation: riseAndFade 0.8s ease-out forwards;
+            box-shadow: 0 0 10px #ffffff, 0 0 20px #ffffff;
+        }
+
+        @keyframes riseAndFade {
+            0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+            100% { transform: translate(-50%, -150px) scale(0.2); opacity: 0; }
+        }
+
+        /* Charge Progress Bar */
+        #charge-progress-container {
+            width: 200px;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 3px;
+            margin: 10px auto;
+            overflow: hidden;
+            display: none; /* Hidden by default */
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            box-shadow: 0 0 10px rgba(255,255,255,0.1);
+        }
+        
+        #charge-progress-bar {
+            width: 0%;
+            height: 100%;
+            background: #fff;
+            box-shadow: 0 0 10px #fff;
+            transition: width 0.1s linear;
+        }
+
+        /* Charge Ring */
+        #charge-ring {
+            position: absolute;
+            width: 60px;
+            height: 60px;
+            border: 4px solid var(--accent-gold);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 1001;
+            transform: translate(-50%, -50%) scale(0);
+            opacity: 0;
+            transition: transform 0.1s linear;
+        }
+
+        /* Picked Card Zone */
+        #picked-zone {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: none; /* Hidden initially */
+            gap: 20px;
+            z-index: 50;
+            pointer-events: none;
+        }
+
+        .picked-slot {
+            width: calc(var(--card-width) * 0.5);
+            height: calc(var(--card-height) * 0.5);
+            border: 2px dashed rgba(255, 255, 255, 0.35);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0,0,0,0.3);
+            transition: all 0.5s;
+        }
+
+        @media (max-width: 480px) {
+            #picked-zone {
+                bottom: 20px;
+                gap: 12px;
+            }
+        }
+
+        .picked-slot.filled {
+            border-style: solid;
+            border-color: var(--accent-gold);
+            background: rgba(0,0,0,0.6);
+        }
+
+        .mini-card {
+            width: 100%;
+            height: 100%;
+            border-radius: 8px;
+            background-size: cover;
+            background-position: center;
+            box-shadow: 0 0 10px rgba(0,0,0,0.5);
+            animation: flyIn 0.5s ease-out;
+        }
+
+        @keyframes flyIn {
+            from { transform: translateY(-300px) scale(1.5); opacity: 0; }
+            to { transform: translateY(0) scale(1); opacity: 1; }
+        }
+
+        /* Loading Spinner */
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border-left-color: var(--accent-gold);
+            animation: spin 1s linear infinite;
+            display: none;
+            margin: 20px auto;
+        }
+
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* Booking / social links footer (shown after interpretation) */
+        #booking-footer {
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(245, 245, 245, 0.25);
+            color: #eee;
+        }
+        #booking-footer p {
+            margin: 0 0 12px 0;
+            font-size: 1rem;
+        }
+        #booking-footer .social-icons {
+            display: flex;
+            justify-content: center;
+            gap: 16px;
+        }
+        #booking-footer .social-icons a {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            border: 1px solid var(--accent-gold);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--accent-gold);
+            text-decoration: none;
+            transition: background 0.3s, color 0.3s;
+        }
+        #booking-footer .social-icons a:hover {
+            background: var(--accent-gold);
+            color: #000;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #111;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #333;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+
+    </style>
+</head>
+<body>
+
+    <!-- Background Canvas -->
+    <canvas id="stars-canvas"></canvas>
+    <div id="fog-layer"></div>
+
+    <div id="asset-loader">
+        <div style="font-size: 1.25rem; color: var(--accent-gold); letter-spacing: 2px;">Đang tải tài nguyên · v2026-01-31-01</div>
+        <div id="asset-progress-text" style="color: #ddd; font-size: 0.95rem;">0%</div>
+        <div id="asset-progress-container">
+            <div id="asset-progress-bar"></div>
+        </div>
+        <button id="asset-retry-btn" class="btn" style="display:none">Tải lại</button>
+    </div>
+
+    <!-- UI Layer -->
+    <div id="ui-layer">
+        <div id="hand-cursor"></div>
+        <div id="charge-ring"></div>
+        <div id="header">
+            <h1>Oni Ethereal Tarot</h1>
+            <div id="status-text">Đang khởi động...</div>
+            <div id="charge-progress-container">
+                <div id="charge-progress-bar"></div>
+            </div>
+        </div>
+
+        <div id="picked-zone">
+            <div class="picked-slot" id="slot-0"></div>
+            <div class="picked-slot" id="slot-1"></div>
+            <div class="picked-slot" id="slot-2"></div>
+        </div>
+
+        <div id="gesture-guide">
+            <div id="zone-left" class="guide-zone">Vẫy sang phải ➡</div>
+            <div id="zone-right" class="guide-zone">⬅ Vẫy sang trái</div>
+            <div id="zone-center" class="guide-zone">
+                <div class="guide-icon" id="icon-select">✊</div>
+                <div style="font-size: 1rem; margin-top: 10px; text-shadow: 0 0 5px black;">nắm tay lại để chọn lá bài bạn muốn</div>
+            </div>
+        </div>
+
+        <div id="controls">
+            <button id="start-btn" class="btn" style="display:none">Bắt đầu</button>
+            <button id="interpret-btn" class="btn" style="display:none; background: linear-gradient(45deg, #ffffff, #c9c9c9); color: #000; font-weight: bold; box-shadow: 0 0 20px rgba(255,255,255,0.6);">🔮 Giải nghĩa</button>
+        </div>
+    </div>
+
+    <video id="webcam-preview" playsinline></video>
+
+    <!-- 3D Scene -->
+    <div id="game-container">
+        <div id="scene">
+            <!-- Cards will be injected here -->
+        </div>
+    </div>
+
+    <!-- Interpretation Modal -->
+    <div id="interpretation-modal">
+        <h2 style="color: var(--accent-gold); text-align: center; margin-top: 0;">Trải bài của bạn mang thông điệp gì?</h2>
+        <div id="interpretation-content"></div>
+        <div id="booking-footer">
+            <p>đặt lịch trải bài tại</p>
+            <div class="social-icons">
+                <a href="https://www.instagram.com/onitarot?igsh=MXdjczZyNmQ5djRiYw%3D%3D&utm_source=qr" target="_blank" rel="noopener" aria-label="Instagram">
+                    <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                        <path d="M12 2.16c3.2 0 3.58.01 4.85.07 1.17.05 1.8.25 2.23.41.56.22.96.48 1.38.9.42.42.68.82.9 1.38.16.42.36 1.06.41 2.23.06 1.27.07 1.65.07 4.85s-.01 3.58-.07 4.85c-.05 1.17-.25 1.8-.41 2.23-.22.56-.48.96-.9 1.38-.42.42-.82.68-1.38.9-.42.16-1.06.36-2.23.41-1.27.06-1.65.07-4.85.07s-3.58-.01-4.85-.07c-1.17-.05-1.8-.25-2.23-.41-.56-.22-.96-.48-1.38-.9-.42-.42-.68-.82-.9-1.38-.16-.42-.36-1.06-.41-2.23-.06-1.27-.07-1.65-.07-4.85s.01-3.58.07-4.85c.05-1.17.25-1.8.41-2.23.22-.56.48-.96.9-1.38.42-.42.82-.68 1.38-.9.42-.16 1.06-.36 2.23-.41 1.27-.06 1.65-.07 4.85-.07M12 0C8.74 0 8.33.01 7.05.07 5.78.13 4.9.33 4.14.63c-.79.31-1.46.72-2.13 1.39C1.35 2.68.94 3.35.63 4.14c-.3.76-.5 1.64-.56 2.91C.01 8.33 0 8.74 0 12s.01 3.67.07 4.95c.06 1.27.26 2.15.56 2.91.31.79.72 1.46 1.39 2.13.67.67 1.34 1.08 2.13 1.39.76.3 1.64.5 2.91.56C8.33 23.99 8.74 24 12 24s3.67-.01 4.95-.07c1.27-.06 2.15-.26 2.91-.56.79-.31 1.46-.72 2.13-1.39.67-.67 1.08-1.34 1.39-2.13.3-.76.5-1.64.56-2.91.06-1.28.07-1.69.07-4.95s-.01-3.67-.07-4.95c-.06-1.27-.26-2.15-.56-2.91-.31-.79-.72-1.46-1.39-2.13C21.32 1.35 20.65.94 19.86.63c-.76-.3-1.64-.5-2.91-.56C15.67.01 15.26 0 12 0zm0 5.84A6.16 6.16 0 1 0 12 18.16 6.16 6.16 0 0 0 12 5.84zm0 10.16A4 4 0 1 1 12 8a4 4 0 0 1 0 8zm6.41-10.4a1.44 1.44 0 1 1-2.88 0 1.44 1.44 0 0 1 2.88 0z"/>
+                    </svg>
+                </a>
+                <a href="https://www.facebook.com/share/1M9KH1HfLE/?mibextid=wwXIfr" target="_blank" rel="noopener" aria-label="Facebook">
+                    <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                        <path d="M22 12.06C22 6.5 17.52 2 12 2S2 6.5 2 12.06c0 5 3.66 9.15 8.44 9.94v-7.03H7.9v-2.91h2.54V9.85c0-2.51 1.49-3.9 3.77-3.9 1.09 0 2.24.2 2.24.2v2.46h-1.26c-1.24 0-1.63.77-1.63 1.56v1.89h2.78l-.44 2.91h-2.34V22c4.78-.79 8.44-4.94 8.44-9.94z"/>
+                    </svg>
+                </a>
+            </div>
+        </div>
+        <div style="text-align: center; margin-top: 30px;">
+            <button class="btn" onclick="document.getElementById('interpretation-modal').style.display='none'">Đóng</button>
+        </div>
+    </div>
+
+    <script>
+        // --- 1. Card Data & Configuration ---
+        const ASSETS_PATH = 'assets/tarot/pkt/';
+        
+        // Helper to generate full card list
+        const generateCards = () => {
+            const cards = [];
+            
+            // Major Arcana
+            const majorNames = [
+                "The Fool", "The Magician", "The High Priestess", "The Empress", "The Emperor", 
+                "The Hierophant", "The Lovers", "The Chariot", "Strength", "The Hermit", 
+                "Wheel of Fortune", "Justice", "The Hanged Man", "Death", "Temperance", 
+                "The Devil", "The Tower", "The Star", "The Moon", "The Sun", 
+                "Judgement", "The World"
+            ];
+            
+            majorNames.forEach((name, i) => {
+                const id = `ar${String(i).padStart(2, '0')}`;
+                cards.push({ id, name, type: 'major', img: `${ASSETS_PATH}${id}.jpg` });
+            });
+
+            // Minor Arcana
+            const suits = [
+                { code: 'wa', name: 'Wands' },
+                { code: 'cu', name: 'Cups' },
+                { code: 'sw', name: 'Swords' },
+                { code: 'pe', name: 'Pentacles' }
+            ];
+            
+            const ranks = [
+                { code: 'ac', name: 'Ace' },
+                { code: '02', name: 'Two' }, { code: '03', name: 'Three' }, { code: '04', name: 'Four' },
+                { code: '05', name: 'Five' }, { code: '06', name: 'Six' }, { code: '07', name: 'Seven' },
+                { code: '08', name: 'Eight' }, { code: '09', name: 'Nine' }, { code: '10', name: 'Ten' },
+                { code: 'pa', name: 'Page' }, { code: 'kn', name: 'Knight' }, { code: 'qu', name: 'Queen' }, { code: 'ki', name: 'King' }
+            ];
+
+            suits.forEach(suit => {
+                ranks.forEach(rank => {
+                    const id = `${suit.code}${rank.code}`;
+                    cards.push({
+                        id,
+                        name: `${rank.name} of ${suit.name}`,
+                        type: 'minor',
+                        img: `${ASSETS_PATH}${id}.jpg`
+                    });
+                });
+            });
+
+            return cards;
+        };
+
+        const FULL_DECK = generateCards();
+
+        // --- Card meanings database & Vietnamese naming ---
+const CARD_DATA = {
+"The Fool":{
+"up":"Một khởi đầu hoàn toàn mới, tinh thần tự do và niềm tin ngây thơ vào cuộc phiêu lưu phía trước, không toan tính, không sợ hãi.",
+"rev":"Sự liều lĩnh thiếu suy nghĩ, một bước nhảy vội vàng không chuẩn bị, hoặc nỗi sợ khiến bạn chần chừ trước cơ hội đang mở ra.",
+"upE":"một khởi đầu tinh khôi, lời mời bước vào cuộc phiêu lưu mà không cần biết trước điều gì sẽ xảy ra",
+"revE":"một quyết định bồng bột hoặc nỗi sợ hãi khiến bạn giậm chân tại chỗ trước ngưỡng cửa mới",
+"upA":"Hãy tin vào bản năng và mạnh dạn bước những bước đầu tiên.",
+"revA":"Chậm lại một nhịp, nhìn rõ điều mình sợ trước khi hành động."
+},
+"The Magician":{
+"up":"Bạn đang nắm trong tay mọi công cụ cần thiết để biến ý tưởng thành hiện thực, chỉ cần một ý chí tập trung và hành động dứt khoát.",
+"rev":"Năng lượng bị phân tán, tài năng chưa được sử dụng đúng cách, hoặc một sự thao túng khiến ý định ban đầu trở nên méo mó.",
+"upE":"khả năng biến ước mơ thành hiện thực khi bạn hội tụ đủ ý chí, kỹ năng và nguồn lực trong tay",
+"revE":"sự thiếu tập trung hoặc những toan tính không thật khiến tiềm năng bị lãng phí",
+"upA":"Tập trung ý chí vào một mục tiêu duy nhất và bắt tay hành động.",
+"revA":"Kiểm tra lại động cơ thật sự của mình trước khi tiến thêm."
+},
+"The High Priestess":{
+"up":"Trực giác đang thì thầm những điều mà lý trí chưa thể lý giải, hãy tĩnh lặng lắng nghe tiếng nói bên trong trước khi hành động.",
+"rev":"Bạn đang phớt lờ trực giác của chính mình hoặc có những bí mật bị che giấu khiến sự thật chưa thể lộ diện.",
+"upE":"một trực giác sâu thẳm và những bí mật chỉ có thể được hiểu bằng sự tĩnh lặng bên trong",
+"revE":"sự mất kết nối với trực giác, hoặc những điều bị giấu kín chưa sẵn sàng lộ diện",
+"upA":"Dành thời gian tĩnh lặng để lắng nghe điều trực giác đang mách bảo.",
+"revA":"Đừng vội phán xét khi sự thật vẫn còn khuất trong bóng tối."
+},
+"The Empress":{
+"up":"Sự sung túc, sáng tạo và tình yêu thương đang nở rộ như một khu vườn được vun đắp bằng tất cả sự dịu dàng bạn có.",
+"rev":"Sự trì trệ trong sáng tạo, cảm giác cạn kiệt khi cho đi quá nhiều, hoặc một sự phụ thuộc khiến bạn quên chăm sóc bản thân.",
+"upE":"một sự sung túc dịu dàng, nơi tình yêu và sáng tạo được nuôi dưỡng đơm hoa kết trái",
+"revE":"cảm giác cạn kiệt hoặc trì trệ khi bạn cho đi nhiều hơn những gì mình còn giữ lại",
+"upA":"Hãy chăm sóc những gì bạn đang vun đắp, kể cả chính bản thân mình.",
+"revA":"Dừng lại và bồi đắp năng lượng cho chính mình trước khi cho đi tiếp."
+},
+"The Emperor":{
+"up":"Trật tự, kỷ luật và một nền tảng vững chắc được thiết lập bằng ý chí sắt đá và trách nhiệm không lay chuyển.",
+"rev":"Sự kiểm soát thái quá, một cái tôi độc đoán, hoặc cấu trúc từng vững chắc nay đang lung lay vì thiếu linh hoạt.",
+"upE":"một nền tảng vững chắc được xây nên bằng kỷ luật, trách nhiệm và ý chí kiên định",
+"revE":"sự cứng nhắc hoặc kiểm soát thái quá đang khiến mọi thứ trở nên ngột ngạt",
+"upA":"Đặt ra ranh giới rõ ràng và giữ vững kỷ luật với mục tiêu của mình.",
+"revA":"Nới lỏng sự kiểm soát và cho phép người khác có tiếng nói."
+},
+"The Hierophant":{
+"up":"Truyền thống, quy chuẩn và sự dẫn dắt từ những điều đã được kiểm chứng mang lại cảm giác an toàn và thuộc về.",
+"rev":"Sự nổi loạn chống lại khuôn khổ cũ, hoặc cảm giác ngột ngạt khi bị ép buộc tuân theo những quy tắc không còn phù hợp.",
+"upE":"sự an toàn và trí tuệ được truyền lại từ những khuôn khổ, truyền thống đã được kiểm chứng",
+"revE":"một sự phá vỡ khuôn mẫu cũ, khi quy tắc không còn phù hợp với con đường riêng của bạn",
+"upA":"Tìm kiếm một người dẫn dắt hoặc hệ giá trị đáng tin cậy để nương tựa.",
+"revA":"Dám đặt câu hỏi với những quy tắc không còn phù hợp với bạn."
+},
+"The Lovers":{
+"up":"Một sự kết nối sâu sắc dựa trên giá trị chung, một lựa chọn quan trọng được đưa ra từ trái tim chân thành.",
+"rev":"Sự mất cân bằng trong mối quan hệ, một lựa chọn sai lầm, hoặc mâu thuẫn giữa lý trí và trái tim chưa được hoá giải.",
+"upE":"một sự hoà hợp sâu sắc và một lựa chọn quan trọng được đưa ra từ trái tim chân thành",
+"revE":"sự mất cân bằng hoặc mâu thuẫn giữa những giá trị chưa thể dung hoà",
+"upA":"Hãy lựa chọn dựa trên những giá trị thật sự quan trọng với bạn.",
+"revA":"Nhìn lại điều gì đang gây mất cân bằng trong mối quan hệ này."
+},
+"The Chariot":{
+"up":"Ý chí kiên định và sự tự chủ đưa bạn tiến về phía trước, vượt qua mọi xung đột nội tâm để giành chiến thắng.",
+"rev":"Mất phương hướng, ý chí bị phân tán theo nhiều ngả, khiến bạn cảm thấy mất kiểm soát trước hoàn cảnh.",
+"upE":"một ý chí kiên định đủ sức chế ngự mọi xung đột để tiến thẳng về đích",
+"revE":"sự mất phương hướng khi ý chí bị kéo về quá nhiều ngả cùng lúc",
+"upA":"Giữ vững mục tiêu và đừng để những xao nhãng làm chệch hướng.",
+"revA":"Xác định lại phương hướng trước khi tiếp tục lao về phía trước."
+},
+"Strength":{
+"up":"Sức mạnh nội tâm dịu dàng nhưng bền bỉ, chế ngự bản năng hoang dã bằng lòng kiên nhẫn và tình thương chứ không phải vũ lực.",
+"rev":"Sự nghi ngờ bản thân, cảm giác yếu đuối hoặc để bản năng nóng nảy lấn át lý trí và sự điềm tĩnh.",
+"upE":"một sức mạnh dịu dàng nhưng bền bỉ, chế ngự mọi bản năng bằng lòng kiên nhẫn",
+"revE":"sự nghi ngờ bản thân khi bản năng nóng nảy lấn át sự điềm tĩnh",
+"upA":"Đối diện với thử thách bằng sự dịu dàng và lòng kiên nhẫn thay vì ép buộc.",
+"revA":"Tìm lại niềm tin vào chính sức mạnh nội tâm của mình."
+},
+"The Hermit":{
+"up":"Một hành trình lui về nội tâm để tìm kiếm sự thật, ánh sáng trí tuệ soi đường trong khoảng lặng cô tịch.",
+"rev":"Sự cô lập quá mức, khép mình khỏi thế giới đến mức lạc lối trong chính những suy nghĩ của bản thân.",
+"upE":"một hành trình lui về nội tâm, nơi ánh sáng trí tuệ soi đường trong sự tĩnh lặng",
+"revE":"sự cô lập quá mức khiến bạn lạc lối trong chính những suy nghĩ của mình",
+"upA":"Dành thời gian ở một mình để tìm lại tiếng nói bên trong.",
+"revA":"Đừng khép mình quá lâu, hãy để ai đó bước vào cùng bạn."
+},
+"Wheel of Fortune":{
+"up":"Vòng xoay số mệnh đang chuyển động, một bước ngoặt bất ngờ mang đến vận may và những cơ hội mới.",
+"rev":"Một chu kỳ trì trệ hoặc vận rủi tạm thời, cảm giác mọi thứ nằm ngoài tầm kiểm soát của bạn.",
+"upE":"một bước ngoặt của số mệnh, mang đến vận may và những cơ hội đến bất ngờ",
+"revE":"một giai đoạn trì trệ hoặc vận rủi khiến mọi thứ dường như ngoài tầm kiểm soát",
+"upA":"Đón nhận sự thay đổi, vì bánh xe luôn xoay theo hướng có lợi cho bạn.",
+"revA":"Kiên nhẫn chờ đợi, vòng xoay số mệnh rồi sẽ đổi chiều."
+},
+"Justice":{
+"up":"Sự công bằng tuyệt đối, nhân quả rõ ràng, mọi hành động đều dẫn đến một hệ quả xứng đáng và minh bạch.",
+"rev":"Sự bất công, một quyết định thiên vị, hoặc hậu quả của những lựa chọn trước đây đang dần lộ diện.",
+"upE":"một sự công bằng tuyệt đối, nơi mọi hành động đều dẫn đến hệ quả xứng đáng",
+"revE":"một sự bất công hoặc hậu quả của những lựa chọn trước đây đang dần lộ diện",
+"upA":"Hãy hành động trung thực, vì mọi thứ rồi sẽ được cân bằng lại.",
+"revA":"Nhìn thẳng vào hậu quả và chịu trách nhiệm cho lựa chọn của mình."
+},
+"The Hanged Man":{
+"up":"Một khoảng dừng cần thiết để nhìn mọi việc từ góc độ khác, buông bỏ sự kiểm soát để đón nhận giác ngộ.",
+"rev":"Sự trì hoãn không hồi kết, cảm giác bị mắc kẹt vì không chịu buông bỏ những gì đã lỗi thời.",
+"upE":"một khoảng dừng cần thiết để nhìn cuộc sống từ một góc độ hoàn toàn khác",
+"revE":"cảm giác mắc kẹt khi bạn không chịu buông bỏ những điều đã lỗi thời",
+"upA":"Tạm dừng lại, đổi góc nhìn trước khi vội vàng hành động.",
+"revA":"Học cách buông bỏ những gì đang giữ chân bạn lại."
+},
+"Death":{
+"up":"Một sự kết thúc tất yếu mở đường cho tái sinh, buông bỏ hoàn toàn những gì đã hết vai trò để nhường chỗ cho điều mới.",
+"rev":"Sự chống cự trước một kết thúc không thể tránh khỏi, khiến quá trình chuyển hoá bị trì hoãn và kéo dài đau đớn.",
+"upE":"một sự kết thúc tất yếu, khép lại hoàn toàn một chương để nhường chỗ cho sự tái sinh",
+"revE":"một sự chống cự trước kết thúc không thể tránh khỏi, khiến nỗi đau kéo dài hơn cần thiết",
+"upA":"Chấp nhận buông bỏ hoàn toàn để mở đường cho khởi đầu mới.",
+"revA":"Ngừng níu kéo điều đã kết thúc, vì càng chống cự càng đau."
+},
+"Temperance":{
+"up":"Sự cân bằng và hoà hợp được tạo nên từ kiên nhẫn pha trộn mọi thái cực, mang lại chữa lành và dòng chảy êm đềm.",
+"rev":"Sự mất cân bằng, thái quá ở một khía cạnh nào đó của cuộc sống khiến năng lượng không còn hài hoà.",
+"upE":"một sự cân bằng hài hoà được tạo nên từ kiên nhẫn pha trộn mọi thái cực",
+"revE":"sự mất cân bằng khi một khía cạnh nào đó của cuộc sống trở nên thái quá",
+"upA":"Kiên nhẫn điều hoà mọi thứ, đừng vội vàng ép buộc kết quả.",
+"revA":"Tìm lại điểm cân bằng đã bị lệch trong cuộc sống của bạn."
+},
+"The Devil":{
+"up":"Sự trói buộc bởi ham muốn, thói quen hoặc nỗi sợ, một xiềng xích tự tạo ra mà bạn có quyền tháo gỡ bất cứ lúc nào.",
+"rev":"Một bước giải thoát khỏi ràng buộc độc hại, nhận ra sức mạnh để cắt đứt những gì đang trói buộc mình.",
+"upE":"một sự trói buộc bởi ham muốn hoặc thói quen, một xiềng xích do chính bạn tạo ra",
+"revE":"một bước giải thoát khi bạn nhận ra sức mạnh để cắt đứt điều đang trói buộc mình",
+"upA":"Nhận diện điều đang trói buộc bạn trước khi có thể thoát khỏi nó.",
+"revA":"Dũng cảm cắt đứt sợi dây ràng buộc đã không còn phục vụ bạn."
+},
+"The Tower":{
+"up":"Một sự sụp đổ đột ngột phá vỡ mọi ảo tưởng, một cú sốc cần thiết để xây dựng lại trên nền móng chân thật hơn.",
+"rev":"Bạn đang né tránh một sự đổ vỡ tất yếu, trì hoãn nỗi đau nhưng khiến nó âm ỉ kéo dài.",
+"upE":"một sự sụp đổ đột ngột phá vỡ mọi ảo tưởng để mở đường cho sự thật",
+"revE":"một sự né tránh đổ vỡ tất yếu, khiến nỗi đau âm ỉ kéo dài thay vì được giải thoát",
+"upA":"Để những gì cần sụp đổ được sụp đổ, rồi xây lại vững vàng hơn.",
+"revA":"Đối diện với sự thật thay vì tiếp tục né tránh nó."
+},
+"The Star":{
+"up":"Hy vọng được thắp sáng sau cơn bão, niềm tin lặng lẽ chữa lành và dẫn lối bạn về phía tương lai tươi sáng.",
+"rev":"Cảm giác mất niềm tin, kiệt sức và hoài nghi liệu ánh sáng có còn ở phía cuối con đường.",
+"upE":"một niềm hy vọng lặng lẽ được thắp sáng sau cơn bão, chữa lành và dẫn lối về tương lai",
+"revE":"một sự mất niềm tin, hoài nghi liệu ánh sáng có còn le lói phía trước",
+"upA":"Giữ vững niềm tin, ánh sáng đang dẫn lối bạn từng bước một.",
+"revA":"Cho phép bản thân được chữa lành trước khi tin tưởng trở lại."
+},
+"The Moon":{
+"up":"Thế giới của tiềm thức, ảo giác và nỗi sợ mơ hồ, mọi thứ chưa rõ ràng nhưng ẩn chứa những sự thật sâu kín.",
+"rev":"Sự thật đang dần được hé lộ, nỗi sợ hãi và ảo tưởng bắt đầu tan biến khi ánh sáng lý trí quay trở lại.",
+"upE":"một thế giới mơ hồ của tiềm thức, nơi nỗi sợ và ảo giác che mờ sự thật",
+"revE":"một sự thật đang dần được hé lộ khi màn sương ảo tưởng bắt đầu tan biến",
+"upA":"Tin vào trực giác nhưng đừng để nỗi sợ dẫn dắt hành động.",
+"revA":"Nhìn thẳng vào sự thật đang dần lộ diện trước mắt bạn."
+},
+"The Sun":{
+"up":"Niềm vui trọn vẹn, thành công rực rỡ và một nguồn năng lượng tích cực chiếu sáng mọi ngóc ngách cuộc sống.",
+"rev":"Niềm vui bị che khuất tạm thời, một sự trì hoãn thành công hoặc cảm giác lạc quan thái quá thiếu thực tế.",
+"upE":"một niềm vui trọn vẹn và nguồn năng lượng rực rỡ chiếu sáng khắp mọi ngóc ngách",
+"revE":"một niềm vui bị che khuất tạm thời, cần thời gian để ánh sáng quay trở lại",
+"upA":"Tận hưởng thành quả và chia sẻ niềm vui ấy với những người xung quanh.",
+"revA":"Kiên nhẫn chờ đợi, ánh nắng rồi sẽ trở lại chiếu sáng con đường bạn đi."
+},
+"Judgement":{
+"up":"Một lời thức tỉnh, thời khắc nhìn lại và tha thứ cho chính mình, sẵn sàng bước vào một phiên bản mới của bản thân.",
+"rev":"Sự tự phán xét quá khắt khe, hoặc từ chối lắng nghe tiếng gọi thay đổi đang vang lên bên trong.",
+"upE":"một lời thức tỉnh, thời khắc nhìn lại và tha thứ để bước vào phiên bản mới của chính mình",
+"revE":"một sự tự phán xét quá khắt khe khiến bạn khó lòng đón nhận sự thay đổi",
+"upA":"Lắng nghe tiếng gọi bên trong và cho phép mình được tái sinh.",
+"revA":"Ngừng khắt khe với bản thân và cho mình cơ hội bắt đầu lại."
+},
+"The World":{
+"up":"Một hành trình đã đi trọn vẹn, viên mãn và hoàn thành, mở ra cánh cửa cho một chu kỳ mới đầy hứa hẹn.",
+"rev":"Một điều gì đó còn dang dở, cảm giác chưa trọn vẹn khiến bạn khó lòng khép lại chương này.",
+"upE":"một hành trình đã đi trọn vẹn, viên mãn và sẵn sàng mở ra một chu kỳ mới",
+"revE":"một điều gì đó còn dang dở, khiến bạn khó lòng khép lại chương này để bước tiếp",
+"upA":"Ăn mừng những gì đã hoàn thành trước khi bước sang chương mới.",
+"revA":"Hoàn tất những việc còn dang dở trước khi tiến về phía trước."
+},
+"Ace of Wands":{
+"up":"Một tia lửa cảm hứng bùng lên, khởi đầu đầy nhiệt huyết cho một dự án hoặc đam mê mới.",
+"rev":"Nguồn cảm hứng bị trì hoãn hoặc một khởi đầu thiếu định hướng khiến ngọn lửa nhiệt huyết chưa thể bùng cháy.",
+"upE":"một tia lửa cảm hứng bùng lên, mở ra khởi đầu đầy nhiệt huyết cho điều gì đó mới mẻ",
+"revE":"một nguồn cảm hứng bị trì hoãn, ngọn lửa nhiệt huyết chưa tìm được hướng đi",
+"upA":"Nắm lấy nguồn cảm hứng này và bắt đầu hành động ngay khi có thể.",
+"revA":"Tìm lại điều thực sự khơi dậy đam mê trong bạn."
+},
+"Two of Wands":{
+"up":"Đứng giữa ngã ba của những lựa chọn, bạn đang hoạch định tầm nhìn xa hơn cho tương lai của mình.",
+"rev":"Sự do dự trước quyết định lớn, sợ bước ra khỏi vùng an toàn để theo đuổi tầm nhìn của riêng mình.",
+"upE":"một tầm nhìn xa được hoạch định, đứng giữa ngã ba của những lựa chọn cho tương lai",
+"revE":"một sự do dự trước quyết định lớn, ngần ngại bước ra khỏi vùng an toàn",
+"upA":"Hoạch định rõ ràng và tin tưởng vào tầm nhìn dài hạn của mình.",
+"revA":"Đừng để nỗi sợ ngăn bạn bước ra khỏi vùng an toàn."
+},
+"Three of Wands":{
+"up":"Những kế hoạch đã gieo trồng giờ đang chờ ngày đơm hoa, tầm nhìn mở rộng ra những chân trời mới.",
+"rev":"Sự chậm trễ ngoài dự kiến, những kế hoạch vấp phải trở ngại khiến tiến độ không như mong đợi.",
+"upE":"những kế hoạch đã gieo trồng đang chờ ngày đơm hoa, mở ra những chân trời mới phía trước",
+"revE":"một sự chậm trễ ngoài dự kiến khiến kế hoạch vấp phải trở ngại tạm thời",
+"upA":"Kiên nhẫn chờ đợi thành quả trong khi tiếp tục mở rộng tầm nhìn.",
+"revA":"Điều chỉnh lại kế hoạch để vượt qua trở ngại hiện tại."
+},
+"Four of Wands":{
+"up":"Một lễ mừng sum vầy, sự ổn định và niềm vui được chia sẻ cùng những người thân yêu.",
+"rev":"Sự bất hoà trong gia đình hoặc cộng đồng, hoặc một niềm vui bị trì hoãn chưa thể trọn vẹn.",
+"upE":"một lễ mừng sum vầy, sự ổn định và niềm vui được chia sẻ cùng người thân",
+"revE":"một sự bất hoà hoặc niềm vui bị trì hoãn chưa thể trọn vẹn như mong đợi",
+"upA":"Dành thời gian ăn mừng những cột mốc cùng người thân yêu.",
+"revA":"Hàn gắn những bất hoà trước khi niềm vui có thể trọn vẹn."
+},
+"Five of Wands":{
+"up":"Xung đột và cạnh tranh nảy sinh khi nhiều ý kiến khác nhau va chạm, thử thách bản lĩnh của bạn.",
+"rev":"Xung đột được hoá giải hoặc một sự né tránh mâu thuẫn khiến căng thẳng âm ỉ chưa được giải quyết.",
+"upE":"một cuộc cạnh tranh hoặc xung đột ý kiến thử thách bản lĩnh và sự kiên định",
+"revE":"một xung đột được hoá giải, hoặc căng thẳng bị né tránh vẫn còn âm ỉ",
+"upA":"Đón nhận thử thách như cơ hội để khẳng định bản thân.",
+"revA":"Giải quyết mâu thuẫn dứt điểm thay vì để nó âm ỉ kéo dài."
+},
+"Six of Wands":{
+"up":"Chiến thắng vinh quang được công nhận trước đám đông, thành quả xứng đáng cho nỗ lực đã bỏ ra.",
+"rev":"Một sự công nhận bị trì hoãn, hoặc cảm giác bất an dù thành công vẫn chưa được ai nhìn thấy.",
+"upE":"một chiến thắng vinh quang được công nhận, thành quả xứng đáng cho những nỗ lực đã qua",
+"revE":"một sự công nhận bị trì hoãn, hoặc nỗi bất an dù đã đạt được thành công",
+"upA":"Tự hào đón nhận thành quả và tiếp tục tiến về phía trước.",
+"revA":"Tin vào giá trị bản thân dù chưa ai công nhận điều đó."
+},
+"Seven of Wands":{
+"up":"Đứng vững trên lập trường của mình giữa những thử thách và áp lực đến từ nhiều phía.",
+"rev":"Cảm giác kiệt sức khi phải phòng thủ liên tục, hoặc buông xuôi trước áp lực quá lớn.",
+"upE":"một sự đứng vững trên lập trường của mình giữa những thử thách đến từ nhiều phía",
+"revE":"một cảm giác kiệt sức khi phải phòng thủ liên tục trước áp lực quá lớn",
+"upA":"Giữ vững lập trường, bạn có đủ sức để bảo vệ điều mình tin tưởng.",
+"revA":"Cho phép bản thân nghỉ ngơi trước khi tiếp tục cuộc chiến."
+},
+"Eight of Wands":{
+"up":"Mọi thứ đang tăng tốc nhanh chóng, tin tức và sự kiện dồn dập đưa bạn tiến về phía trước.",
+"rev":"Sự trì hoãn bất ngờ làm chậm lại nhịp độ vốn đang tiến triển nhanh chóng.",
+"upE":"một tốc độ dồn dập, mọi thứ đang tăng tốc và tiến triển nhanh chóng về phía trước",
+"revE":"một sự trì hoãn bất ngờ làm chậm lại nhịp độ vốn đang tiến triển nhanh",
+"upA":"Nắm bắt đà tiến triển này và hành động nhanh chóng, dứt khoát.",
+"revA":"Kiên nhẫn chờ đợi, tốc độ sẽ sớm trở lại như trước."
+},
+"Nine of Wands":{
+"up":"Kiên cường bám trụ dù đã thấm mệt, bạn chỉ còn một chặng cuối trước khi hoàn thành mục tiêu.",
+"rev":"Kiệt sức đến mức muốn buông xuôi, hoặc sự phòng thủ thái quá khiến bạn khó tin tưởng ai.",
+"upE":"một sự kiên cường bám trụ dù đã thấm mệt, chỉ còn một chặng cuối để hoàn thành",
+"revE":"một sự kiệt sức đến mức muốn buông xuôi trước vạch đích",
+"upA":"Cố gắng thêm một chút nữa, đích đến đã ở rất gần.",
+"revA":"Cho phép bản thân nghỉ ngơi và hạ thấp sự phòng thủ."
+},
+"Ten of Wands":{
+"up":"Gánh nặng trách nhiệm chất chồng lên vai, bạn đang cố hoàn thành mọi thứ dù kiệt sức.",
+"rev":"Buông bỏ bớt gánh nặng không cần thiết, học cách san sẻ trách nhiệm với người khác.",
+"upE":"một gánh nặng trách nhiệm chất chồng, cố gắng hoàn thành mọi thứ dù đã kiệt sức",
+"revE":"một sự buông bỏ gánh nặng không cần thiết, học cách san sẻ trách nhiệm",
+"upA":"San sẻ bớt gánh nặng, bạn không cần phải gánh vác một mình.",
+"revA":"Buông bỏ những gì không thuộc về trách nhiệm của bạn."
+},
+"Page of Wands":{
+"up":"Một thông điệp đầy nhiệt huyết, sự tò mò trẻ trung háo hức khám phá những chân trời mới.",
+"rev":"Sự thiếu kiên nhẫn hoặc một kế hoạch bốc đồng chưa được suy nghĩ thấu đáo.",
+"upE":"một sự tò mò trẻ trung, háo hức khám phá và thử nghiệm những điều mới mẻ",
+"revE":"một sự thiếu kiên nhẫn hoặc kế hoạch bốc đồng chưa được suy nghĩ thấu đáo",
+"upA":"Nuôi dưỡng sự tò mò và dám thử nghiệm những điều mới.",
+"revA":"Dừng lại suy nghĩ kỹ trước khi hành động theo cảm hứng nhất thời."
+},
+"Knight of Wands":{
+"up":"Nhiệt huyết mãnh liệt thúc đẩy bạn lao về phía trước, táo bạo và đầy tự tin trong hành động.",
+"rev":"Sự bốc đồng thiếu kiên nhẫn, hành động vội vàng không tính đến hậu quả lâu dài.",
+"upE":"một nhiệt huyết mãnh liệt, táo bạo lao về phía trước với sự tự tin tuyệt đối",
+"revE":"một sự bốc đồng thiếu kiên nhẫn, hành động vội vàng không lường trước hậu quả",
+"upA":"Hành động táo bạo nhưng đừng quên nhìn lại con đường phía trước.",
+"revA":"Kiềm chế sự bốc đồng và suy nghĩ thấu đáo hơn trước khi hành động."
+},
+"Queen of Wands":{
+"up":"Tự tin, rực rỡ và quyến rũ, bạn toả sáng bằng chính năng lượng và sự ấm áp của mình.",
+"rev":"Sự ghen tị hoặc thiếu tự tin khiến ánh sáng vốn có của bạn bị lu mờ.",
+"upE":"một sự tự tin rực rỡ, toả sáng bằng chính năng lượng và sự ấm áp của bản thân",
+"revE":"một sự ghen tị hoặc thiếu tự tin khiến ánh sáng vốn có bị lu mờ",
+"upA":"Toả sáng theo cách của riêng bạn, không cần so sánh với ai khác.",
+"revA":"Tìm lại sự tự tin đã từng là bản năng tự nhiên của bạn."
+},
+"King of Wands":{
+"up":"Tầm nhìn lãnh đạo mạnh mẽ, truyền cảm hứng cho người khác bằng chính sự quyết đoán và táo bạo.",
+"rev":"Sự độc đoán hoặc nóng nảy thái quá khiến khả năng lãnh đạo trở nên áp đặt.",
+"upE":"một tầm nhìn lãnh đạo mạnh mẽ, truyền cảm hứng cho người khác bằng sự quyết đoán",
+"revE":"một sự độc đoán hoặc nóng nảy thái quá khiến khả năng lãnh đạo trở nên áp đặt",
+"upA":"Dẫn dắt bằng tầm nhìn và truyền cảm hứng thay vì áp đặt.",
+"revA":"Lắng nghe nhiều hơn thay vì áp đặt ý chí của riêng mình."
+},
+"Ace of Cups":{
+"up":"Một nguồn cảm xúc mới tràn đầy, tình yêu hoặc sự kết nối sâu sắc bắt đầu tuôn chảy.",
+"rev":"Cảm xúc bị kìm nén hoặc một cơ hội yêu thương chưa được đón nhận trọn vẹn.",
+"upE":"một nguồn cảm xúc mới tràn đầy, tình yêu và sự kết nối sâu sắc bắt đầu tuôn chảy",
+"revE":"một cảm xúc bị kìm nén, cơ hội yêu thương chưa được đón nhận trọn vẹn",
+"upA":"Mở lòng đón nhận tình yêu và những kết nối cảm xúc mới.",
+"revA":"Cho phép bản thân cảm nhận thay vì kìm nén cảm xúc."
+},
+"Two of Cups":{
+"up":"Một sự kết nối hài hoà, mối quan hệ hai chiều nơi cả hai cùng thấu hiểu và tôn trọng nhau.",
+"rev":"Sự mất cân bằng trong mối quan hệ, hiểu lầm hoặc chia cách khiến kết nối trở nên lỏng lẻo.",
+"upE":"một sự kết nối hài hoà, nơi cả hai cùng thấu hiểu và tôn trọng lẫn nhau",
+"revE":"một sự mất cân bằng hoặc hiểu lầm khiến kết nối trở nên lỏng lẻo",
+"upA":"Trân trọng sự kết nối này bằng sự chân thành và lắng nghe.",
+"revA":"Giải quyết hiểu lầm trước khi khoảng cách trở nên xa hơn."
+},
+"Three of Cups":{
+"up":"Niềm vui được chia sẻ cùng bạn bè, một dịp ăn mừng tình bạn và sự gắn kết cộng đồng.",
+"rev":"Sự xa cách trong tình bạn, hoặc niềm vui trở nên thái quá đến mức mất kiểm soát.",
+"upE":"một niềm vui được chia sẻ cùng bạn bè, ăn mừng tình bạn và sự gắn kết",
+"revE":"một sự xa cách trong tình bạn, hoặc niềm vui trở nên thái quá mất kiểm soát",
+"upA":"Dành thời gian trân trọng những người bạn luôn ở bên bạn.",
+"revA":"Hàn gắn những rạn nứt trong tình bạn trước khi quá muộn."
+},
+"Four of Cups":{
+"up":"Sự thờ ơ trước những cơ hội đang bày ra trước mắt, mải mê chìm trong suy tư mà bỏ lỡ điều tốt đẹp.",
+"rev":"Bạn bắt đầu tỉnh thức và mở lòng đón nhận những cơ hội mới sau một thời gian thờ ơ.",
+"upE":"một sự thờ ơ trước những cơ hội đang bày ra, mải mê chìm trong suy tư",
+"revE":"một sự tỉnh thức, bắt đầu mở lòng đón nhận cơ hội sau thời gian thờ ơ",
+"upA":"Ngẩng đầu lên và nhìn nhận những cơ hội đang chờ đợi bạn.",
+"revA":"Tiếp tục mở lòng đón nhận những điều mới đang đến."
+},
+"Five of Cups":{
+"up":"Nỗi buồn trước mất mát khiến bạn chỉ nhìn thấy những gì đã đổ, quên rằng vẫn còn điều nguyên vẹn phía sau.",
+"rev":"Bắt đầu chấp nhận mất mát và tìm thấy hy vọng để bước tiếp sau nỗi đau.",
+"upE":"một nỗi buồn trước mất mát, chỉ nhìn thấy những gì đã đổ mà quên điều còn nguyên vẹn",
+"revE":"một sự chấp nhận mất mát, bắt đầu tìm thấy hy vọng để bước tiếp",
+"upA":"Quay lại nhìn những gì vẫn còn nguyên vẹn phía sau bạn.",
+"revA":"Cho phép bản thân bước tiếp sau khi đã chấp nhận nỗi đau."
+},
+"Six of Cups":{
+"up":"Những kỷ niệm ngọt ngào từ quá khứ trở về, mang theo sự hoài niệm và tình cảm chân thành.",
+"rev":"Sống mãi trong quá khứ khiến bạn khó lòng bước tiếp, hoặc một mối quan hệ cũ quay trở lại không đúng lúc.",
+"upE":"những kỷ niệm ngọt ngào từ quá khứ trở về, mang theo sự hoài niệm chân thành",
+"revE":"một sự mắc kẹt trong quá khứ, khó lòng bước tiếp về phía trước",
+"upA":"Trân trọng ký ức đẹp nhưng đừng quên sống ở hiện tại.",
+"revA":"Buông bỏ quá khứ để có thể thực sự bước tiếp."
+},
+"Seven of Cups":{
+"up":"Vô vàn lựa chọn và ảo tưởng bày ra trước mắt, cần sự tỉnh táo để phân biệt đâu là thực chất.",
+"rev":"Sự rõ ràng dần trở lại, bạn bắt đầu nhìn thấu những ảo tưởng để đưa ra lựa chọn đúng đắn.",
+"upE":"vô vàn lựa chọn và ảo tưởng bày ra trước mắt, cần sự tỉnh táo để phân biệt",
+"revE":"một sự rõ ràng dần trở lại, nhìn thấu ảo tưởng để lựa chọn đúng đắn",
+"upA":"Tỉnh táo phân biệt điều thực chất giữa muôn vàn lựa chọn.",
+"revA":"Tin vào sự sáng suốt mới tìm lại được để đưa ra quyết định."
+},
+"Eight of Cups":{
+"up":"Rời bỏ những gì không còn ý nghĩa để tìm kiếm một điều gì đó sâu sắc và trọn vẹn hơn.",
+"rev":"Sự do dự trước khi rời đi, hoặc quay lại một điều đã từng buông bỏ vì sợ những điều chưa biết.",
+"upE":"một sự rời bỏ những gì không còn ý nghĩa để tìm kiếm điều sâu sắc hơn",
+"revE":"một sự do dự trước khi rời đi, sợ hãi trước những điều chưa biết",
+"upA":"Can đảm rời xa những gì không còn phục vụ hành trình của bạn.",
+"revA":"Đối diện với nỗi sợ thay vì quay lại điều đã từng buông bỏ."
+},
+"Nine of Cups":{
+"up":"Sự mãn nguyện trọn vẹn, những ước nguyện đã thành hiện thực mang lại niềm hạnh phúc viên mãn.",
+"rev":"Sự mãn nguyện hời hợt bên ngoài, hoặc cảm giác trống rỗng dù đã đạt được những gì mong muốn.",
+"upE":"một sự mãn nguyện trọn vẹn, những ước nguyện đã thành hiện thực và mang lại hạnh phúc",
+"revE":"một sự mãn nguyện hời hợt, cảm giác trống rỗng dù đã đạt được điều mong muốn",
+"upA":"Tận hưởng trọn vẹn niềm hạnh phúc mà bạn đã xứng đáng có được.",
+"revA":"Tìm kiếm sự mãn nguyện thật sự thay vì vẻ ngoài hào nhoáng."
+},
+"Ten of Cups":{
+"up":"Hạnh phúc trọn vẹn, một bức tranh gia đình viên mãn mà bạn từng dày công vun đắp và hằng ao ước.",
+"rev":"Rạn nứt trong hạnh phúc gia đình, những giá trị từng gắn kết nay không còn như trước.",
+"upE":"một hạnh phúc trọn vẹn, một bức tranh gia đình viên mãn mà bạn từng dày công vun đắp",
+"revE":"một rạn nứt trong hạnh phúc gia đình, những giá trị từng gắn kết nay lung lay",
+"upA":"Trân trọng và tiếp tục vun đắp hạnh phúc mà bạn đang có.",
+"revA":"Hàn gắn lại những giá trị đã từng gắn kết mọi người."
+},
+"Page of Cups":{
+"up":"Một thông điệp cảm xúc dịu dàng, sự nhạy cảm trẻ trung mở lòng đón nhận những điều mới mẻ.",
+"rev":"Sự nhạy cảm thái quá dẫn đến tổn thương, hoặc một cảm xúc chưa đủ chín chắn để đối mặt thực tế.",
+"upE":"một thông điệp cảm xúc dịu dàng, sự nhạy cảm trẻ trung mở lòng đón nhận điều mới",
+"revE":"một sự nhạy cảm thái quá dẫn đến tổn thương, cảm xúc chưa đủ chín chắn",
+"upA":"Mở lòng đón nhận thông điệp cảm xúc đang đến với bạn.",
+"revA":"Học cách bảo vệ cảm xúc của mình mà không đóng kín trái tim."
+},
+"Knight of Cups":{
+"up":"Một lời mời lãng mạn, theo đuổi cảm xúc và lý tưởng bằng cả trái tim chân thành.",
+"rev":"Cảm xúc thất thường, những lời hứa hẹn hoa mỹ nhưng thiếu hành động thực chất.",
+"upE":"một lời mời lãng mạn, theo đuổi cảm xúc và lý tưởng bằng cả trái tim",
+"revE":"một sự thất thường trong cảm xúc, những lời hứa hẹn thiếu hành động thực chất",
+"upA":"Theo đuổi điều trái tim mách bảo bằng sự chân thành.",
+"revA":"Nhìn vào hành động thực tế thay vì chỉ những lời hứa hẹn."
+},
+"Queen of Cups":{
+"up":"Sự thấu cảm sâu sắc, trực giác nhạy bén và một trái tim luôn rộng mở để yêu thương và chữa lành.",
+"rev":"Cảm xúc bị cuốn đi bởi người khác, mất ranh giới giữa thấu cảm và tự đánh mất chính mình.",
+"upE":"một sự thấu cảm sâu sắc, trái tim luôn rộng mở để yêu thương và chữa lành",
+"revE":"một sự mất ranh giới cảm xúc, dễ bị cuốn đi bởi cảm xúc của người khác",
+"upA":"Dùng sự thấu cảm của mình để chữa lành, cho bản thân lẫn người khác.",
+"revA":"Đặt ra ranh giới cảm xúc rõ ràng để bảo vệ chính mình."
+},
+"King of Cups":{
+"up":"Sự điềm tĩnh và trưởng thành trong cảm xúc, dẫn dắt bằng trái tim nhưng không để cảm xúc chi phối lý trí.",
+"rev":"Cảm xúc bị kìm nén phía sau vẻ ngoài điềm tĩnh, hoặc thao túng cảm xúc người khác một cách tinh vi.",
+"upE":"một sự điềm tĩnh trưởng thành, dẫn dắt bằng trái tim nhưng không để cảm xúc chi phối",
+"revE":"một cảm xúc bị kìm nén phía sau vẻ ngoài điềm tĩnh",
+"upA":"Cân bằng giữa lý trí và cảm xúc trong mọi quyết định.",
+"revA":"Cho phép bản thân bộc lộ cảm xúc thay vì kìm nén chúng."
+},
+"Ace of Swords":{
+"up":"Một sự thật sáng rõ chợt loé lên, tư duy sắc bén cắt đứt mọi mơ hồ để nhìn thấu vấn đề.",
+"rev":"Sự nhầm lẫn trong tư duy, hoặc một sự thật bị bóp méo khiến quyết định trở nên sai lệch.",
+"upE":"một sự thật sáng rõ, tư duy sắc bén cắt đứt mọi mơ hồ để nhìn thấu vấn đề",
+"revE":"một sự nhầm lẫn trong tư duy, sự thật bị bóp méo khiến quyết định sai lệch",
+"upA":"Dùng sự sáng suốt này để đưa ra quyết định rõ ràng, dứt khoát.",
+"revA":"Xem xét lại thông tin trước khi tin vào những gì có vẻ hiển nhiên."
+},
+"Two of Swords":{
+"up":"Bế tắc giữa hai lựa chọn, cố tình nhắm mắt để không phải đối diện với một quyết định khó khăn.",
+"rev":"Bắt đầu mở mắt nhìn nhận sự thật, sẵn sàng phá vỡ thế bế tắc đã kéo dài quá lâu.",
+"upE":"một sự bế tắc giữa hai lựa chọn, cố tình nhắm mắt để tránh né quyết định khó khăn",
+"revE":"một sự mở mắt nhìn nhận sự thật, sẵn sàng phá vỡ thế bế tắc đã kéo dài",
+"upA":"Mở mắt nhìn thẳng vào vấn đề và đưa ra quyết định.",
+"revA":"Đối diện với sự thật đã trốn tránh quá lâu."
+},
+"Three of Swords":{
+"up":"Nỗi đau chia lìa xuyên thấu trái tim, một sự thật phũ phàng gây tổn thương sâu sắc.",
+"rev":"Vết thương đang dần được chữa lành, học cách tha thứ để giải phóng bản thân khỏi nỗi đau cũ.",
+"upE":"một nỗi đau chia lìa xuyên thấu trái tim, một sự thật phũ phàng gây tổn thương",
+"revE":"một vết thương đang dần được chữa lành, học cách tha thứ để giải phóng bản thân",
+"upA":"Cho phép bản thân đau buồn, đó là bước đầu của chữa lành.",
+"revA":"Tha thứ để giải phóng chính mình khỏi nỗi đau cũ."
+},
+"Four of Swords":{
+"up":"Một khoảng nghỉ cần thiết để phục hồi, tạm rút lui khỏi ồn ào để tâm trí được tĩnh lặng.",
+"rev":"Sự nghỉ ngơi bị gián đoạn, hoặc kiệt sức vì không cho phép bản thân dừng lại đủ lâu.",
+"upE":"một khoảng nghỉ cần thiết để phục hồi, tạm rút lui để tâm trí được tĩnh lặng",
+"revE":"một sự nghỉ ngơi bị gián đoạn, kiệt sức vì chưa cho bản thân dừng lại đủ lâu",
+"upA":"Cho phép bản thân nghỉ ngơi trọn vẹn trước khi tiếp tục.",
+"revA":"Ưu tiên sự phục hồi thay vì tiếp tục ép mình làm việc."
+},
+"Five of Swords":{
+"up":"Chiến thắng bằng mọi giá nhưng để lại mất mát, một cuộc xung đột không ai thực sự là người thắng cuộc.",
+"rev":"Sẵn sàng buông bỏ xung đột và tìm kiếm sự hoà giải thay vì tiếp tục tranh đấu.",
+"upE":"một chiến thắng bằng mọi giá nhưng để lại mất mát, không ai thực sự là người thắng cuộc",
+"revE":"một sự sẵn sàng buông bỏ xung đột và tìm kiếm hoà giải",
+"upA":"Cân nhắc xem chiến thắng này có thực sự đáng giá hay không.",
+"revA":"Tìm kiếm sự hoà giải thay vì tiếp tục cuộc chiến."
+},
+"Six of Swords":{
+"up":"Rời xa vùng biển giông bão để hướng tới một nơi bình yên hơn, một hành trình chuyển tiếp cần thiết.",
+"rev":"Sự trì hoãn trong quá trình chuyển tiếp, khó lòng rời xa những khó khăn đã quen thuộc.",
+"upE":"một hành trình rời xa giông bão để hướng tới một nơi bình yên hơn",
+"revE":"một sự trì hoãn trong chuyển tiếp, khó lòng rời xa những khó khăn đã quen",
+"upA":"Tiếp tục hành trình, vùng nước yên bình đang ở phía trước.",
+"revA":"Buông bỏ để có thể thực sự bắt đầu hành trình chuyển tiếp."
+},
+"Seven of Swords":{
+"up":"Một chiến lược khôn khéo hoặc một sự lén lút, hành động một mình mà không cần ai biết.",
+"rev":"Sự thật về một hành vi lén lút bị phơi bày, hoặc tội lỗi bắt đầu cắn rứt lương tâm.",
+"upE":"một chiến lược khôn khéo hoặc một sự lén lút, hành động một mình mà không cần ai biết",
+"revE":"một sự thật bị phơi bày, tội lỗi bắt đầu cắn rứt lương tâm",
+"upA":"Cân nhắc kỹ chiến lược của mình, đừng để nó gây tổn hại cho ai.",
+"revA":"Thành thật đối diện với những gì đã giấu kín."
+},
+"Eight of Swords":{
+"up":"Cảm giác bị trói buộc bởi chính những suy nghĩ giới hạn của bản thân, dù lối thoát vẫn luôn ở đó.",
+"rev":"Bắt đầu nhận ra tự do vẫn luôn nằm trong tầm tay, chỉ cần dám bước ra khỏi nỗi sợ.",
+"upE":"một cảm giác bị trói buộc bởi chính những suy nghĩ giới hạn của bản thân",
+"revE":"một sự nhận ra rằng tự do vẫn luôn nằm trong tầm tay nếu dám bước ra",
+"upA":"Nhìn lại xem điều gì thực sự đang trói buộc bạn, có thể chỉ là suy nghĩ.",
+"revA":"Dũng cảm bước ra khỏi những giới hạn tự đặt ra cho mình."
+},
+"Nine of Swords":{
+"up":"Những nỗi lo âu giữa đêm khuya, tâm trí bị giày vò bởi những điều tồi tệ nhất có thể xảy ra.",
+"rev":"Bắt đầu tìm thấy ánh sáng sau đêm dài lo âu, nhận ra nỗi sợ đã phóng đại hơn thực tế.",
+"upE":"những nỗi lo âu giữa đêm khuya, tâm trí bị giày vò bởi những điều tồi tệ nhất",
+"revE":"một sự tìm thấy ánh sáng sau đêm dài lo âu, nhận ra nỗi sợ đã bị phóng đại",
+"upA":"Tìm kiếm sự hỗ trợ thay vì một mình gánh chịu nỗi lo âu.",
+"revA":"Nhận ra rằng nỗi sợ thường lớn hơn thực tế rất nhiều."
+},
+"Ten of Swords":{
+"up":"Một cú chạm đáy phũ phàng, một sự đổ vỡ hoặc kết thúc không thể cứu vãn đã xảy ra.",
+"rev":"Bắt đầu hồi phục sau cú sốc, nhận ra rằng điều tồi tệ nhất đã ở lại phía sau.",
+"upE":"một cú chạm đáy phũ phàng, một sự đổ vỡ hoặc kết thúc không thể cứu vãn",
+"revE":"một sự hồi phục sau cú sốc, điều tồi tệ nhất đã ở lại phía sau",
+"upA":"Chấp nhận rằng khi đã chạm đáy, hướng duy nhất còn lại là đi lên.",
+"revA":"Bắt đầu đứng dậy, những gì tệ nhất đã ở lại phía sau bạn."
+},
+"Page of Swords":{
+"up":"Sự tò mò sắc bén, khao khát tìm hiểu sự thật bằng một tâm trí luôn cảnh giác.",
+"rev":"Lời nói thiếu suy nghĩ, hoặc tin đồn thất thiệt lan truyền do thiếu kiểm chứng.",
+"upE":"một sự tò mò sắc bén, khao khát tìm hiểu sự thật bằng tâm trí luôn cảnh giác",
+"revE":"một lời nói thiếu suy nghĩ, tin đồn thất thiệt lan truyền do thiếu kiểm chứng",
+"upA":"Đặt câu hỏi và tìm hiểu sự thật trước khi kết luận.",
+"revA":"Suy nghĩ kỹ trước khi nói ra điều chưa được kiểm chứng."
+},
+"Knight of Swords":{
+"up":"Lao thẳng về phía mục tiêu với tốc độ và quyết tâm, không gì có thể cản bước bạn lại.",
+"rev":"Hành động hấp tấp thiếu suy xét, lời nói hoặc quyết định vội vàng gây ra hậu quả.",
+"upE":"một sự lao thẳng về phía mục tiêu với tốc độ và quyết tâm không gì cản nổi",
+"revE":"một sự hấp tấp thiếu suy xét, quyết định vội vàng gây ra hậu quả",
+"upA":"Hành động quyết đoán nhưng đừng quên nhìn lại hậu quả.",
+"revA":"Chậm lại và suy nghĩ kỹ trước khi hành động tiếp theo."
+},
+"Queen of Swords":{
+"up":"Sự sắc sảo và thẳng thắn, nhìn thấu sự thật bằng lý trí tỉnh táo không để cảm xúc chi phối.",
+"rev":"Sự lạnh lùng thái quá, lời nói cay nghiệt gây tổn thương những người xung quanh.",
+"upE":"một sự sắc sảo thẳng thắn, nhìn thấu sự thật bằng lý trí tỉnh táo",
+"revE":"một sự lạnh lùng thái quá, lời nói cay nghiệt gây tổn thương người khác",
+"upA":"Nói sự thật nhưng hãy chọn cách nói đầy sự tử tế.",
+"revA":"Cân nhắc lời nói của mình trước khi nó gây tổn thương ai đó."
+},
+"King of Swords":{
+"up":"Trí tuệ sắc bén và sự công minh, đưa ra quyết định dựa trên logic và sự thật khách quan.",
+"rev":"Sự độc đoán trong tư duy, lạm dụng quyền lực trí tuệ để áp đặt lên người khác.",
+"upE":"một trí tuệ sắc bén và công minh, đưa ra quyết định dựa trên logic và sự thật",
+"revE":"một sự độc đoán trong tư duy, lạm dụng quyền lực trí tuệ để áp đặt người khác",
+"upA":"Ra quyết định dựa trên sự thật khách quan và công tâm.",
+"revA":"Lắng nghe góc nhìn của người khác thay vì áp đặt của riêng mình."
+},
+"Ace of Pentacles":{
+"up":"Một cơ hội vật chất mới xuất hiện, hạt giống thịnh vượng được gieo trồng chờ ngày đơm hoa kết trái.",
+"rev":"Một cơ hội tài chính bị bỏ lỡ, hoặc một sự khởi đầu thiếu nền tảng vững chắc.",
+"upE":"một cơ hội vật chất mới, hạt giống thịnh vượng được gieo trồng chờ ngày đơm hoa",
+"revE":"một cơ hội bị bỏ lỡ, hoặc một khởi đầu thiếu nền tảng vững chắc",
+"upA":"Nắm bắt cơ hội này và xây dựng nền tảng vững chắc ngay từ đầu.",
+"revA":"Xem xét lại nền tảng trước khi tiếp tục đầu tư công sức."
+},
+"Two of Pentacles":{
+"up":"Khéo léo cân bằng nhiều trách nhiệm cùng lúc, linh hoạt thích nghi với những thay đổi liên tục.",
+"rev":"Mất cân bằng khi ôm đồm quá nhiều thứ cùng lúc, khiến mọi việc trở nên rối ren.",
+"upE":"một sự khéo léo cân bằng nhiều trách nhiệm cùng lúc, linh hoạt thích nghi với thay đổi",
+"revE":"một sự mất cân bằng khi ôm đồm quá nhiều thứ khiến mọi việc rối ren",
+"upA":"Giữ nhịp linh hoạt nhưng đừng ôm đồm quá nhiều cùng lúc.",
+"revA":"Ưu tiên lại những gì thực sự quan trọng và buông bớt phần còn lại."
+},
+"Three of Pentacles":{
+"up":"Sự hợp tác hiệu quả giữa nhiều người mang lại thành quả vượt xa những gì làm được một mình.",
+"rev":"Thiếu sự phối hợp trong công việc nhóm, hoặc công sức không được công nhận đúng mức.",
+"upE":"một sự hợp tác hiệu quả, thành quả vượt xa những gì có thể làm được một mình",
+"revE":"một sự thiếu phối hợp, công sức không được công nhận đúng mức",
+"upA":"Hợp tác chặt chẽ với những người cùng chung mục tiêu.",
+"revA":"Tìm cách cải thiện sự phối hợp và giao tiếp trong nhóm."
+},
+"Four of Pentacles":{
+"up":"Nắm giữ chặt những gì đã có, sự thận trọng về tài chính nhưng cũng có thể là dấu hiệu của keo kiệt.",
+"rev":"Bắt đầu buông lỏng sự kiểm soát về vật chất, học cách chia sẻ thay vì bám giữ.",
+"upE":"một sự nắm giữ chặt những gì đã có, thận trọng về tài chính nhưng có thể trở nên keo kiệt",
+"revE":"một sự buông lỏng kiểm soát vật chất, học cách chia sẻ thay vì bám giữ",
+"upA":"Cân bằng giữa tiết kiệm và cho phép bản thân tận hưởng.",
+"revA":"Học cách buông tay và chia sẻ những gì mình đang có."
+},
+"Five of Pentacles":{
+"up":"Khó khăn về vật chất hoặc tinh thần khiến bạn cảm thấy bị bỏ rơi, lạc lõng giữa cơn bão.",
+"rev":"Bắt đầu tìm thấy sự hỗ trợ sau giai đoạn khó khăn, ánh sáng cuối đường hầm đang ló dạng.",
+"upE":"một khó khăn về vật chất hoặc tinh thần khiến bạn cảm thấy bị bỏ rơi, lạc lõng",
+"revE":"một sự tìm thấy hỗ trợ sau giai đoạn khó khăn, ánh sáng cuối đường hầm đang ló dạng",
+"upA":"Tìm kiếm sự giúp đỡ, bạn không cần phải một mình vượt qua.",
+"revA":"Đón nhận sự hỗ trợ đang dần xuất hiện quanh bạn."
+},
+"Six of Pentacles":{
+"up":"Sự cho và nhận cân bằng, hào phóng chia sẻ những gì mình có với người cần giúp đỡ.",
+"rev":"Sự mất cân bằng trong cho và nhận, một mối quan hệ phụ thuộc hoặc điều kiện đi kèm.",
+"upE":"một sự cho và nhận cân bằng, hào phóng chia sẻ với những người cần giúp đỡ",
+"revE":"một sự mất cân bằng trong cho và nhận, một mối quan hệ phụ thuộc hoặc có điều kiện",
+"upA":"Chia sẻ với lòng hào phóng nhưng đừng quên chăm sóc bản thân.",
+"revA":"Xem xét lại sự cân bằng trong việc cho và nhận của bạn."
+},
+"Seven of Pentacles":{
+"up":"Kiên nhẫn đánh giá lại thành quả đã gieo trồng, cân nhắc bước tiếp theo trước khi tiếp tục đầu tư.",
+"rev":"Sự thiếu kiên nhẫn khiến bạn muốn từ bỏ ngay trước khi thành quả kịp chín muồi.",
+"upE":"một sự kiên nhẫn đánh giá lại thành quả đã gieo trồng trước khi tiếp tục đầu tư",
+"revE":"một sự thiếu kiên nhẫn, muốn từ bỏ ngay trước khi thành quả kịp chín muồi",
+"upA":"Kiên nhẫn đánh giá lại trước khi quyết định bước tiếp theo.",
+"revA":"Đừng từ bỏ ngay trước khi thành quả kịp chín muồi."
+},
+"Eight of Pentacles":{
+"up":"Sự tận tâm rèn giũa kỹ năng, chăm chỉ trau dồi để đạt đến sự thành thạo trong công việc.",
+"rev":"Sự chán nản với công việc lặp đi lặp lại, hoặc thiếu chú tâm khiến chất lượng giảm sút.",
+"upE":"một sự tận tâm rèn giũa kỹ năng, chăm chỉ trau dồi để đạt đến thành thạo",
+"revE":"một sự chán nản với công việc lặp lại, thiếu chú tâm khiến chất lượng giảm sút",
+"upA":"Tiếp tục trau dồi kỹ năng, sự thành thạo cần thời gian để đạt được.",
+"revA":"Tìm lại động lực hoặc thay đổi cách tiếp cận công việc."
+},
+"Nine of Pentacles":{
+"up":"Sự độc lập và sung túc tự thân, tận hưởng thành quả từ chính nỗ lực của bản thân.",
+"rev":"Sự phụ thuộc tài chính vào người khác, hoặc mất kết nối với thành quả mình đã tạo ra.",
+"upE":"một sự độc lập và sung túc tự thân, tận hưởng thành quả từ chính nỗ lực bản thân",
+"revE":"một sự phụ thuộc tài chính, mất kết nối với thành quả mình đã tạo ra",
+"upA":"Tận hưởng sự độc lập và thành quả bạn đã tự mình tạo ra.",
+"revA":"Tìm lại sự độc lập về tài chính và cảm xúc cho bản thân."
+},
+"Ten of Pentacles":{
+"up":"Sự thịnh vượng bền vững qua nhiều thế hệ, một di sản lâu dài được xây dựng vững chắc.",
+"rev":"Bất ổn tài chính trong gia đình, hoặc mâu thuẫn về thừa kế và giá trị truyền thống.",
+"upE":"một sự thịnh vượng bền vững qua nhiều thế hệ, một di sản lâu dài được xây dựng",
+"revE":"một sự bất ổn tài chính trong gia đình, mâu thuẫn về thừa kế hoặc giá trị truyền thống",
+"upA":"Xây dựng nền tảng lâu dài cho những thế hệ tiếp theo.",
+"revA":"Giải quyết mâu thuẫn tài chính trong gia đình một cách rõ ràng."
+},
+"Page of Pentacles":{
+"up":"Sự ham học hỏi thực tế, tinh thần cầu tiến với những kế hoạch cụ thể cho tương lai vật chất.",
+"rev":"Sự thiếu tập trung vào những kế hoạch dài hạn, mơ mộng nhưng chưa hành động cụ thể.",
+"upE":"một sự ham học hỏi thực tế, tinh thần cầu tiến với kế hoạch cụ thể cho tương lai",
+"revE":"một sự thiếu tập trung vào kế hoạch dài hạn, mơ mộng nhưng chưa hành động",
+"upA":"Lập kế hoạch cụ thể và bắt đầu từng bước nhỏ thực tế.",
+"revA":"Biến ước mơ thành những bước hành động cụ thể hơn."
+},
+"Knight of Pentacles":{
+"up":"Sự cần cù và đáng tin cậy, từng bước chắc chắn tiến tới mục tiêu bằng sự kiên trì bền bỉ.",
+"rev":"Sự trì trệ do quá thận trọng, ngại thay đổi khiến cơ hội trôi qua trong tay.",
+"upE":"một sự cần cù đáng tin cậy, từng bước chắc chắn tiến tới mục tiêu bằng kiên trì",
+"revE":"một sự trì trệ do quá thận trọng, ngại thay đổi khiến cơ hội trôi qua",
+"upA":"Kiên trì từng bước, sự chắc chắn sẽ mang lại thành quả bền vững.",
+"revA":"Dám thử điều mới thay vì mãi bám vào sự an toàn quen thuộc."
+},
+"Queen of Pentacles":{
+"up":"Sự ấm áp thực tế, chăm sóc chu đáo cả về vật chất lẫn tinh thần cho những người xung quanh.",
+"rev":"Sự mất cân bằng giữa công việc và chăm sóc bản thân, quên chăm sóc chính mình khi lo cho người khác.",
+"upE":"một sự ấm áp thực tế, chăm sóc chu đáo cả về vật chất lẫn tinh thần",
+"revE":"một sự mất cân bằng, quên chăm sóc chính mình khi mải lo cho người khác",
+"upA":"Chăm sóc người khác nhưng đừng quên chăm sóc cả bản thân mình.",
+"revA":"Dành thời gian chăm sóc lại chính mình trước khi tiếp tục cho đi."
+},
+"King of Pentacles":{
+"up":"Sự thành đạt vững chắc, xây dựng nên một cơ ngơi bền vững bằng sự kiên nhẫn và tầm nhìn thực tế.",
+"rev":"Sự tham lam vật chất thái quá, hoặc cứng nhắc bám chặt vào những gì mình sở hữu.",
+"upE":"một sự thành đạt vững chắc, xây dựng cơ ngơi bền vững bằng kiên nhẫn và tầm nhìn thực tế",
+"revE":"một sự tham lam vật chất thái quá, cứng nhắc bám chặt vào những gì sở hữu",
+"upA":"Tiếp tục xây dựng nền tảng vững chắc bằng sự kiên nhẫn thực tế.",
+"revA":"Buông bớt sự bám chấp vào vật chất và mở lòng hào phóng hơn."
+}
+};
+
+        const SUIT_VN = { Wands: "Gậy", Cups: "Cốc", Swords: "Kiếm", Pentacles: "Tiền" };
+        const RANK_VN = { Ace: "Ách", Two: "2", Three: "3", Four: "4", Five: "5", Six: "6", Seven: "7", Eight: "8", Nine: "9", Ten: "10", Page: "Thị Đồng", Knight: "Kỵ Sĩ", Queen: "Hoàng Hậu", King: "Vua" };
+        const MAJOR_VN = {
+            "The Fool": "The Fool (Chàng Khờ)", "The Magician": "The Magician (Pháp Sư)",
+            "The High Priestess": "The High Priestess (Nữ Tư Tế)", "The Empress": "The Empress (Nữ Hoàng)",
+            "The Emperor": "The Emperor (Hoàng Đế)", "The Hierophant": "The Hierophant (Giáo Hoàng)",
+            "The Lovers": "The Lovers (Tình Nhân)", "The Chariot": "The Chariot (Cỗ Xe)",
+            "Strength": "Strength (Sức Mạnh)", "The Hermit": "The Hermit (Ẩn Sĩ)",
+            "Wheel of Fortune": "Wheel of Fortune (Bánh Xe Số Mệnh)", "Justice": "Justice (Công Lý)",
+            "The Hanged Man": "The Hanged Man (Người Treo Ngược)", "Death": "Death (Tử Thần)",
+            "Temperance": "Temperance (Tiết Độ)", "The Devil": "The Devil (Ác Quỷ)",
+            "The Tower": "The Tower (Toà Tháp)", "The Star": "The Star (Ngôi Sao)",
+            "The Moon": "The Moon (Mặt Trăng)", "The Sun": "The Sun (Mặt Trời)",
+            "Judgement": "Judgement (Phán Xét)", "The World": "The World (Thế Giới)"
+        };
+        function vnName(englishName) {
+            if (MAJOR_VN[englishName]) return MAJOR_VN[englishName];
+            const [rank, , suit] = englishName.split(' ');
+            return `${RANK_VN[rank]} ${SUIT_VN[suit]}`;
+        }
+
+        let currentDeck = [];
+        let pickedCards = []; // { card, reversed, position }
+        let assetsReady = false;
+        let assetsFailed = false;
+        let cameraReady = false;
+        let cameraError = false;
+
+        function setAssetProgress(progress, label) {
+            const pct = Math.max(0, Math.min(100, Math.round(progress)));
+            const text = document.getElementById('asset-progress-text');
+            const bar = document.getElementById('asset-progress-bar');
+            if (text) text.innerText = label ? `${label} ${pct}%` : `${pct}%`;
+            if (bar) bar.style.width = `${pct}%`;
+        }
+
+        function updateIdleStatus() {
+            if (currentState !== STATE.IDLE) return;
+            if (cameraError) return;
+            const status = document.getElementById('status-text');
+            if (!status) return;
+            if (assetsFailed) {
+                status.innerText = "Tải tài nguyên thất bại, nhấn để thử lại";
+                return;
+            }
+            if (!assetsReady) {
+                status.innerText = "Đang tải tài nguyên...";
+                return;
+            }
+            if (cameraReady) {
+                status.innerText = "giơ tay ra trước camera để bắt đầu bốc bài";
+            }
+        }
+
+        function preloadDeckAssets() {
+            const loader = document.getElementById('asset-loader');
+            const retryBtn = document.getElementById('asset-retry-btn');
+            if (retryBtn) retryBtn.style.display = 'none';
+            if (loader) loader.style.display = 'flex';
+
+            assetsReady = false;
+            assetsFailed = false;
+            setAssetProgress(0);
+            updateIdleStatus();
+
+            const images = FULL_DECK.map(c => c.img).filter(Boolean);
+            const uniqueImages = Array.from(new Set(images));
+            const total = uniqueImages.length;
+            let doneCount = 0;
+            let failCount = 0;
+
+            if (total === 0) {
+                assetsReady = true;
+                if (loader) loader.style.display = 'none';
+                updateIdleStatus();
+                return;
+            }
+
+            uniqueImages.forEach((src) => {
+                const img = new Image();
+                img.decoding = 'async';
+                img.onload = () => {
+                    doneCount += 1;
+                    const progress = ((doneCount + failCount) / total) * 100;
+                    setAssetProgress(progress);
+                    if (doneCount + failCount === total) finish();
+                };
+                img.onerror = () => {
+                    failCount += 1;
+                    const progress = ((doneCount + failCount) / total) * 100;
+                    setAssetProgress(progress);
+                    if (doneCount + failCount === total) finish();
+                };
+                img.src = src;
+            });
+
+            function finish() {
+                if (failCount > 0) {
+                    assetsFailed = true;
+                    setAssetProgress(100, "Tải thất bại");
+                    if (retryBtn) retryBtn.style.display = 'inline-block';
+                    if (retryBtn) retryBtn.onclick = () => preloadDeckAssets();
+                    updateIdleStatus();
+                    return;
+                }
+                assetsReady = true;
+                setAssetProgress(100, "Tải xong");
+                if (loader) loader.style.display = 'none';
+                updateIdleStatus();
+            }
+        }
+        
+        // --- 2. Game State & Logic ---
+        const STATE = {
+            IDLE: 'IDLE',
+            INTRO: 'INTRO',
+            PICKING: 'PICKING',
+            REVEALING: 'REVEALING',
+            INTERPRETING: 'INTERPRETING'
+        };
+
+        let currentState = STATE.IDLE;
+        
+        // Navigation State
+        let currentIndex = 0;   // Current float index (physics object)
+        let velocity = 0;       // Current scroll velocity
+        let isDragging = false; // Is the user actively moving?
+        
+        // --- 3. 3D Scene & Rendering ---
+        const scene = document.getElementById('scene');
+        
+        function initStars() {
+            const canvas = document.getElementById('stars-canvas');
+            const ctx = canvas.getContext('2d');
+            
+            let width, height, stars = [];
+            
+            function resize() {
+                width = window.innerWidth;
+                height = window.innerHeight;
+                canvas.width = width;
+                canvas.height = height;
+                stars = [];
+                for(let i=0; i<200; i++) {
+                    stars.push({
+                        x: Math.random() * width,
+                        y: Math.random() * height,
+                        size: Math.random() * 2,
+                        opacity: Math.random(),
+                        speed: Math.random() * 0.5
+                    });
+                }
+            }
+            
+            function animate() {
+                ctx.clearRect(0, 0, width, height);
+                ctx.fillStyle = 'white';
+                
+                stars.forEach(star => {
+                    ctx.globalAlpha = star.opacity;
+                    ctx.beginPath();
+                    ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    star.y -= star.speed;
+                    if(star.y < 0) star.y = height;
+                    
+                    // Twinkle
+                    if(Math.random() > 0.95) star.opacity = Math.random();
+                });
+                
+                requestAnimationFrame(animate);
+            }
+            
+            window.addEventListener('resize', resize);
+            resize();
+            animate();
+        }
+
+        // Shuffle Array
+        function shuffle(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        function createCardElement(card, index) {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'card-wrapper';
+            wrapper.dataset.index = index;
+            
+            const inner = document.createElement('div');
+            inner.className = 'card-inner';
+            
+            const back = document.createElement('div');
+            back.className = 'card-face card-back';
+            
+            const front = document.createElement('div');
+            front.className = 'card-face card-front';
+            front.style.backgroundImage = `url('${card.img}')`;
+            
+            inner.appendChild(back);
+            inner.appendChild(front);
+            wrapper.appendChild(inner);
+            
+            return wrapper;
+        }
+
+        function renderDeck() {
+            scene.innerHTML = '';
+            
+            // Render logic based on state
+            if (currentState === STATE.PICKING || currentState === STATE.INTRO) {
+                // Render a fan or spread of cards
+                // For simplicity and "coolness", we use a horizontal carousel
+                
+                currentDeck.forEach((card, i) => {
+                    const el = createCardElement(card, i);
+                    scene.appendChild(el);
+                });
+                updateCardPositions();
+            } else if (currentState === STATE.REVEALING || currentState === STATE.INTERPRETING) {
+                // Render only picked cards centered
+                pickedCards.forEach((item, i) => {
+                    const el = createCardElement(item.card, i);
+                    // Add picked specific styles if needed
+                    el.classList.add('picked-card');
+                    // Immediately flip if revealed
+                    // Logic handled in updatePickedPositions
+                    scene.appendChild(el);
+                });
+                updatePickedPositions();
+            }
+        }
+
+        function updateCardPositions() {
+            if (currentState !== STATE.PICKING && currentState !== STATE.INTRO) return;
+
+            const cards = document.querySelectorAll('.card-wrapper');
+            const width = window.innerWidth;
+            
+            // Responsive Layout Calculation
+            // Base gap + factor of screen width
+            // This ensures on wide screens cards are spread out more
+            const cardWidthVar = getComputedStyle(document.documentElement).getPropertyValue('--card-width').trim();
+            const cardWidthPx = parseFloat(cardWidthVar) || 200;
+            const compactMedia = window.matchMedia && window.matchMedia('(orientation: landscape) and (max-height: 520px)').matches;
+            const isMobile = width <= 480 || compactMedia;
+            const gap = Math.min(
+                Math.max(cardWidthPx * (isMobile ? 0.85 : 1.15), width * (isMobile ? 0.12 : 0.18)),
+                cardWidthPx * (isMobile ? 1.25 : 2)
+            );
+            
+            // Calculate how many cards to show based on screen width
+            // Due to Z-depth, cards shrink, so we need more margin
+            // If gap is 300, and width is 1920 (half 960), we need ~3.2 cards.
+            // But Z-depth makes them squeeze. Let's be generous.
+            const visibleSideCount = Math.ceil((width / 2) / (gap * 0.5)) + 3;
+            
+            cards.forEach((card, i) => {
+                // Check if card is already picked
+                if (card.classList.contains('picked')) {
+                    return; // Skip positioning logic for picked cards
+                }
+
+                const dist = i - currentIndex;
+                
+                if (Math.abs(dist) > visibleSideCount) {
+                    card.style.display = 'none';
+                    return;
+                } else {
+                    card.style.display = 'block';
+                }
+
+                const x = dist * gap;
+                // Reduce Z-depth dropoff to keep peripheral cards larger/closer
+                const z = -Math.pow(Math.abs(dist), 1.3) * 50; 
+                
+                // Reduced rotation to keep back visible (prevent face peeking)
+                // Clamp rotation to max 45 degrees
+                let rotateY = dist * 5; 
+                if (rotateY > 45) rotateY = 45;
+                if (rotateY < -45) rotateY = -45;
+                
+                let scale = 1;
+                const isSelected = Math.round(currentIndex) === i;
+                
+                if (Math.abs(dist) < 0.5) {
+                    const selectedScaleBase = isMobile ? 1.06 : 1.2;
+                    const selectedScaleFalloff = isMobile ? 0.22 : 0.4;
+                    scale = selectedScaleBase - Math.abs(dist) * selectedScaleFalloff;
+                    card.style.zIndex = 1000;
+                } else {
+                    // Less aggressive scaling down for side cards
+                    scale = 1 - Math.min(Math.abs(dist) * 0.08, 0.4);
+                    card.style.zIndex = 1000 - Math.floor(Math.abs(dist) * 10);
+                }
+                
+                if (isSelected) {
+                     card.classList.add('selected');
+                } else {
+                     card.classList.remove('selected');
+                }
+
+                if (isFistHeld && chargeTargetIndex !== null && i === chargeTargetIndex) {
+                    scale *= chargeExtraScale;
+                    card.style.zIndex = 2000;
+                }
+                
+                card.style.transform = `translateX(${x}px) translateZ(${z}px) rotateY(${rotateY}deg) scale(${scale})`;
+            });
+        }
+
+        function updatePickedPositions() {
+            const cards = document.querySelectorAll('.card-wrapper');
+            
+            // Responsive spacing for picked cards
+            const width = window.innerWidth;
+            const compactMedia = window.matchMedia && window.matchMedia('(orientation: landscape) and (max-height: 520px)').matches;
+            const spread = (width <= 480 || compactMedia) ? Math.min(width * 0.18, 180) : Math.min(width * 0.3, 400);
+            
+            const positions = [-spread, 0, spread];
+            
+            cards.forEach((card, i) => {
+                const x = positions[i];
+                // If this card is revealed, flip it
+                if (i < pickedCards.length) {
+                    const picked = pickedCards[i];
+                    // Reveal animation
+                    setTimeout(() => {
+                        card.classList.add('flipped');
+                        // Add reversed visual if needed
+                        if (picked.reversed) {
+                            // Find the front face and rotate it
+                            const front = card.querySelector('.card-front');
+                            if (front) {
+                                front.style.transform = 'rotateX(180deg)'; // Flip upside down
+                            }
+                        }
+                    }, i * 500 + 500); // Staggered reveal
+                }
+                
+                card.style.transform = `translateX(${x}px) scale(1.1)`;
+                card.style.zIndex = 10;
+            });
+        }
+
+        // --- 4. Controls & Hand Gestures ---
+        let lastHandX = -1;
+        let lastHandY = -1; // Track Y for cursor
+        
+        // Selection State
+        let fistHoldStart = 0;
+        let isFistHeld = false;
+        let lockedSelectIndex = null;
+        let chargeTargetIndex = null;
+        let chargeExtraScale = 1;
+        const SELECTION_HOLD_TIME = 1000; // 1 second as requested
+
+        // Interpretation Gesture State
+        let isPalmHeld = false;
+        let palmHoldStart = 0;
+        const INTERPRET_HOLD_TIME = 1500;
+
+        // Physics Constants
+        const FRICTION = 0.92;
+        const SENSITIVITY = 1.0; // Reduced for slower, controlled scrolling
+        const MAX_VELOCITY = 0.25; // Lower cap speed
+        
+        function isFist(landmarks) {
+            // Check fingertips (8, 12, 16, 20) distance to wrist (0)
+            const wrist = landmarks[0];
+            const tips = [8, 12, 16, 20];
+            let avgDist = 0;
+            
+            tips.forEach(idx => {
+                const tip = landmarks[idx];
+                const d = Math.sqrt(Math.pow(tip.x - wrist.x, 2) + Math.pow(tip.y - wrist.y, 2));
+                avgDist += d;
+            });
+            avgDist /= tips.length;
+            
+            // Threshold for fist (tuned for normalized coordinates)
+            return avgDist < 0.23; 
+        }
+
+        function isOpenPalm(landmarks) {
+             // Check fingertips (8, 12, 16, 20) distance to wrist (0)
+            const wrist = landmarks[0];
+            const tips = [8, 12, 16, 20];
+            let avgDist = 0;
+            
+            tips.forEach(idx => {
+                const tip = landmarks[idx];
+                const d = Math.sqrt(Math.pow(tip.x - wrist.x, 2) + Math.pow(tip.y - wrist.y, 2));
+                avgDist += d;
+            });
+            avgDist /= tips.length;
+            
+            // Threshold for open palm (fingers extended)
+            return avgDist > 0.4; 
+        }
+
+        function spawnChargeParticles(rect) {
+            const x = rect.left + rect.width / 2;
+            const y = rect.top + rect.height / 2;
+            
+            // Spawn multiple particles
+            for(let i=0; i<2; i++) {
+                const p = document.createElement('div');
+                p.className = 'particle';
+                
+                // Random offset within card area
+                const ox = (Math.random() - 0.5) * rect.width * 0.9;
+                const oy = (Math.random() - 0.5) * rect.height * 0.9;
+                
+                p.style.left = (x + ox) + 'px';
+                p.style.top = (y + oy) + 'px';
+                
+                // Varied properties
+                const size = 2 + Math.random() * 6;
+                p.style.width = size + 'px';
+                p.style.height = size + 'px';
+                
+                if(Math.random() > 0.6) {
+                    p.style.background = 'var(--accent-gold)';
+                    p.style.boxShadow = '0 0 8px var(--accent-gold)';
+                }
+                
+                document.body.appendChild(p);
+                setTimeout(() => p.remove(), 800);
+            }
+        }
+
+        function spawnInterpretationParticles() {
+            for (let i = 0; i < 5; i++) {
+                const p = document.createElement('div');
+                p.className = 'particle';
+                
+                const x = Math.random() * window.innerWidth;
+                const y = Math.random() * window.innerHeight;
+                
+                p.style.left = x + 'px';
+                p.style.top = y + 'px';
+                
+                const size = 3 + Math.random() * 8;
+                p.style.width = size + 'px';
+                p.style.height = size + 'px';
+                
+                p.style.background = 'var(--accent-gold)';
+                p.style.boxShadow = '0 0 10px var(--accent-gold)';
+                p.style.opacity = '0.8';
+                p.style.zIndex = '9999';
+                
+                // Animation: Float up
+                p.animate([
+                    { transform: 'translateY(0) scale(1)', opacity: 0.8 },
+                    { transform: `translateY(-100px) scale(0)`, opacity: 0 }
+                ], {
+                    duration: 1000 + Math.random() * 1000,
+                    easing: 'ease-out'
+                });
+                
+                document.body.appendChild(p);
+                setTimeout(() => p.remove(), 2000);
+            }
+        }
+
+        function spawnTrail(x, y) {
+            const trail = document.createElement('div');
+            trail.className = 'cursor-trail';
+            trail.style.left = x + 'px';
+            trail.style.top = y + 'px';
+            // Random colors for coolness
+            const hue = (Date.now() / 10) % 360;
+            trail.style.background = `hsla(${hue}, 80%, 60%, 0.8)`;
+            trail.style.boxShadow = `0 0 10px hsla(${hue}, 80%, 60%, 0.8)`;
+            document.body.appendChild(trail);
+            setTimeout(() => trail.remove(), 500);
+        }
+
+        function updateChargeVisuals(isActive, x, y, progress) {
+            const ring = document.getElementById('charge-ring');
+            // Disable ring visual as requested (red circle)
+            ring.style.opacity = '0';
+            ring.style.display = 'none';
+            return;
+            
+            /* Previous logic disabled
+            if (!isActive) {
+                ring.style.opacity = '0';
+                ring.style.transform = `translate(-50%, -50%) scale(0)`;
+                return;
+            }
+            
+            ring.style.left = x + 'px';
+            ring.style.top = y + 'px';
+            ring.style.opacity = '1';
+            // Scale from 0.5 to 1.5 based on progress
+            const scale = 0.5 + progress; 
+            ring.style.transform = `translate(-50%, -50%) scale(${scale})`;
+            
+            // Change color based on progress
+            const r = 212 + (255-212)*progress;
+            const g = 175 - 175*progress; // Turn redder? Or whiter? Let's go Gold to White
+            const b = 55 + (255-55)*progress;
+            ring.style.borderColor = `rgb(${r},${g},${b})`;
+            */
+        }
+
+        function handleGesture(handLandmarks) {
+            // Allow processing in INTERPRETING and IDLE state too
+            if (currentState !== STATE.PICKING && currentState !== STATE.INTERPRETING && currentState !== STATE.IDLE) return;
+            
+            const palm = handLandmarks[9]; 
+            const x = palm.x; 
+            const y = palm.y;
+
+            // Initialize lastHandX if needed
+            if (lastHandX === -1) {
+                lastHandX = x;
+                lastHandY = y;
+                return;
+            }
+
+            // Update Cursor Visuals
+            const cursor = document.getElementById('hand-cursor');
+            const screenX = (1 - x) * window.innerWidth; // Mirror X
+            const screenY = y * window.innerHeight;
+            
+            cursor.style.display = 'block';
+            cursor.style.left = screenX + 'px';
+            cursor.style.top = screenY + 'px';
+
+            // Always spawn trail for "cool" factor when moving
+            const distMoved = Math.sqrt(Math.pow(x - lastHandX, 2) + Math.pow(y - lastHandY, 2));
+            if (distMoved > 0.005) {
+                spawnTrail(screenX, screenY);
+            }
+
+            // --- START & INTERPRETATION LOGIC ---
+            if (currentState === STATE.IDLE || currentState === STATE.INTERPRETING) {
+                const progressContainer = document.getElementById('charge-progress-container');
+                const progressBar = document.getElementById('charge-progress-bar');
+                
+                if (isOpenPalm(handLandmarks)) {
+                    if (!isPalmHeld) {
+                        isPalmHeld = true;
+                        palmHoldStart = Date.now();
+                        // Show progress bar
+                        progressContainer.style.display = 'block';
+                        progressBar.style.width = '0%';
+                    }
+                    
+                    const elapsed = Date.now() - palmHoldStart;
+                    const progress = Math.min(elapsed / INTERPRET_HOLD_TIME, 1.0);
+                    
+                    // Visuals
+                    if (Math.random() < 0.5) spawnInterpretationParticles();
+                    
+                    // Update Progress Bar
+                    progressBar.style.width = (progress * 100) + '%';
+                    
+                    if (elapsed > INTERPRET_HOLD_TIME) {
+                        // Trigger Action
+                        if (currentState === STATE.IDLE) {
+                            startGame();
+                        } else if (currentState === STATE.INTERPRETING) {
+                            openInterpretation();
+                        }
+                        
+                        // Reset vars but keep state (modal will handle overlay)
+                        isPalmHeld = false;
+                        palmHoldStart = 0;
+                        progressContainer.style.display = 'none';
+                    }
+                } else {
+                    if (isPalmHeld) {
+                        isPalmHeld = false;
+                        palmHoldStart = 0;
+                        
+                        // Reset Visuals
+                        progressContainer.style.display = 'none';
+                        progressBar.style.width = '0%';
+
+                        if (currentState === STATE.IDLE) {
+                             updateIdleStatus();
+                        } else {
+                             document.getElementById('status-text').innerText = "Trải bài của bạn mang thông điệp gì?";
+                        }
+                    }
+                }
+                lastHandX = x;
+                lastHandY = y;
+                return; // Skip picking logic
+            }
+
+            // --- ZONE BASED LOGIC (Replaced Movement Logic) ---
+            const width = window.innerWidth;
+            let targetV = 0;
+            const MAX_SCROLL_SPEED = 0.2; // Max speed at edge of screen
+            
+            if (screenX < width * 0.33) {
+                // LEFT ZONE (0 - 1/3)
+                // Speed increases as we get closer to the left edge (0)
+                const distFromCenter = (width * 0.33) - screenX;
+                const maxDist = width * 0.33;
+                const intensity = Math.min(distFromCenter / maxDist, 1.0); // 0 to 1
+                
+                targetV = -intensity * MAX_SCROLL_SPEED;
+                highlightDirection('left');
+            } else if (screenX > width * 0.66) {
+                // RIGHT ZONE (2/3 - 1)
+                // Speed increases as we get closer to the right edge (width)
+                const distFromCenter = screenX - (width * 0.66);
+                const maxDist = width * 0.34;
+                const intensity = Math.min(distFromCenter / maxDist, 1.0); // 0 to 1
+                
+                targetV = intensity * MAX_SCROLL_SPEED;
+                highlightDirection('right');
+            } else {
+                // CENTER ZONE (1/3 - 2/3)
+                // Stop Scrolling
+                targetV = 0;
+                
+                // Only clear highlights if not selecting
+                if (!isFistHeld) resetHighlights();
+            }
+            
+            // Smoothly interpolate velocity towards target
+            // This prevents jerky starts/stops
+            velocity = velocity * 0.8 + targetV * 0.2;
+
+            // --- SELECTION LOGIC (Middle 1/3 + 1s Hold) ---
+            const inCenterZone = screenX > width * 0.33 && screenX < width * 0.66;
+            const fistDetected = isFist(handLandmarks);
+
+            if (fistDetected && inCenterZone) {
+                // Cursor stays same shape/color
+                
+                if (!isFistHeld) {
+                    // Start Holding
+                    isFistHeld = true;
+                    fistHoldStart = Date.now();
+                    lockedSelectIndex = Math.round(currentIndex);
+                    chargeTargetIndex = lockedSelectIndex;
+                    chargeExtraScale = 1;
+                    highlightDirection('select');
+                }
+                
+                // Calculate Progress
+                const elapsed = Date.now() - fistHoldStart;
+                const progress = Math.min(elapsed / SELECTION_HOLD_TIME, 1.0);
+                chargeExtraScale = 1 + progress * 0.15;
+                
+                // Glow Effect on Target Card
+                const targetIdx = lockedSelectIndex ?? Math.round(currentIndex);
+                const cards = document.querySelectorAll('.card-wrapper');
+                cards.forEach(card => {
+                    if (parseInt(card.dataset.index) === targetIdx) {
+                        // White glow increasing with progress - Intensified
+                        const glowSize = 30 + (progress * 100);
+                        const glowAlpha = 0.8 + (progress * 0.2); // Starts bright, stays bright
+                        // Multiple layers for intense glow
+                        card.style.boxShadow = `
+                            0 0 ${glowSize}px rgba(255, 255, 255, ${glowAlpha}),
+                            0 0 ${glowSize * 0.5}px rgba(255, 255, 255, 1),
+                            inset 0 0 30px rgba(255, 255, 255, 0.5)
+                        `;
+                        card.style.filter = `brightness(${1 + progress * 1.5})`; // Make it blindingly bright
+                        card.style.zIndex = 2000; // Ensure on top
+                        
+                        // Spawn Particles
+                        spawnChargeParticles(card.getBoundingClientRect());
+                        
+                    } else {
+                         // Reset others if needed, though usually handled in updateCardPositions
+                         // We should let updateCardPositions handle base state, but here we override.
+                         card.style.filter = ''; // Reset filter
+                         card.style.boxShadow = ''; // Reset shadow
+                    }
+                });
+
+                updateChargeVisuals(true, screenX, screenY, progress);
+                
+                if (elapsed > SELECTION_HOLD_TIME) {
+                    // Trigger Selection
+                    selectCard();
+                    
+                    // Reset
+                    isFistHeld = false;
+                    fistHoldStart = 0;
+                    lockedSelectIndex = null;
+                    chargeTargetIndex = null;
+                    chargeExtraScale = 1;
+                    updateChargeVisuals(false);
+                    
+                    // Cleanup any remaining glow immediately on select (or keep it as feedback?)
+                    // Actually selectCard hides the card, so we are fine.
+                    
+                    // Success Burst
+                    const ring = document.createElement('div');
+                    ring.style.position = 'absolute';
+                    ring.style.left = screenX + 'px';
+                    ring.style.top = screenY + 'px';
+                    ring.style.width = '100px';
+                    ring.style.height = '100px';
+                    ring.style.border = '4px solid white';
+                    ring.style.borderRadius = '50%';
+                    ring.style.transform = 'translate(-50%, -50%)';
+                    ring.style.animation = 'pulseRing 0.5s ease-out'; 
+                    document.body.appendChild(ring);
+                    setTimeout(() => ring.remove(), 500);
+                }
+                
+            } else {
+                // cursor.classList.remove('grabbing');
+                if (isFistHeld) {
+                    // Cancelled
+                    isFistHeld = false;
+                    fistHoldStart = 0;
+                    lockedSelectIndex = null;
+                    chargeTargetIndex = null;
+                    chargeExtraScale = 1;
+                    updateChargeVisuals(false);
+                    resetHighlights();
+                    
+                    // Reset card styles immediately
+                    const cards = document.querySelectorAll('.card-wrapper');
+                    cards.forEach(card => {
+                        card.style.filter = '';
+                        card.style.boxShadow = '';
+                    });
+                }
+            }
+            
+            lastHandX = x;
+            lastHandY = y;
+        }
+
+        let targetIndex = 0; // Target for intro animation
+
+        function gameLoop() {
+            if (currentState === STATE.INTRO) {
+                // Smoothly interpolate currentIndex to targetIndex
+                const dist = targetIndex - currentIndex;
+                // Exponential ease out
+                currentIndex += dist * 0.05;
+                
+                // Check if close enough to stop intro
+                if (Math.abs(dist) < 0.1) {
+                    currentIndex = targetIndex;
+                    currentState = STATE.PICKING;
+                    document.getElementById('status-text').innerText = "nắm tay lại để chọn lá bài bạn muốn";
+                    document.getElementById('gesture-guide').style.opacity = '1';
+                    // Show picked zone slots
+                    document.getElementById('picked-zone').style.display = 'flex';
+                }
+                updateCardPositions();
+            }
+            
+            if (currentState === STATE.PICKING) {
+                if (isFistHeld && lockedSelectIndex !== null) {
+                    currentIndex = lockedSelectIndex;
+                    velocity = 0;
+                } else {
+                    // Apply Velocity
+                    currentIndex += velocity;
+                    
+                    // Apply Friction
+                    velocity *= FRICTION;
+                    
+                    // Stop if very slow
+                    if (Math.abs(velocity) < 0.0001) velocity = 0;
+
+                    // Bounds Checking with Bounce/Damping
+                    if (currentIndex < 0) {
+                        currentIndex = 0;
+                        velocity = -velocity * 0.5; // Bounce
+                    }
+                    if (currentIndex > currentDeck.length - 1) {
+                        currentIndex = currentDeck.length - 1;
+                        velocity = -velocity * 0.5; // Bounce
+                    }
+                }
+                
+                updateCardPositions();
+            }
+            requestAnimationFrame(gameLoop);
+        }
+
+        function highlightDirection(dir) {
+            resetHighlights();
+            if (dir === 'left') document.getElementById('zone-right').classList.add('active'); // Visual Right is Swipe Left source?
+            // Actually let's just highlight the side corresponding to movement
+            // Hand moves Left -> Highlight Left Zone
+            if (dir === 'left') document.getElementById('zone-left').classList.add('active'); // Wait, Left Zone is visually on Left
+            if (dir === 'right') document.getElementById('zone-right').classList.add('active');
+            if (dir === 'select') {
+                document.getElementById('zone-center').classList.add('active');
+                document.getElementById('icon-select').classList.add('active');
+            }
+        }
+        
+        function resetHighlights() {
+            document.getElementById('zone-left').classList.remove('active');
+            document.getElementById('zone-right').classList.remove('active');
+            document.getElementById('zone-center').classList.remove('active');
+            document.getElementById('icon-select').classList.remove('active');
+        }
+
+        // Start Loop
+        requestAnimationFrame(gameLoop);
+
+        function navigateDeck(dir) {
+            // Keyboard support updates velocity for consistency
+            velocity += dir * 0.1;
+            if (dir < 0) highlightDirection('left');
+            if (dir > 0) highlightDirection('right');
+            setTimeout(resetHighlights, 200);
+        }
+
+        function selectCard() {
+            if (currentState !== STATE.PICKING) return;
+            
+            // Select the card currently at the integer center
+            const selectedIdxInt = Math.round(currentIndex);
+            
+            // Check if valid
+            if (selectedIdxInt < 0 || selectedIdxInt >= currentDeck.length) return;
+            
+            // Check if already picked (though we remove them from flow usually)
+            // But with splicing logic, we need to be careful.
+            // New logic: We DON'T splice. We just mark them.
+            
+            const selectedCard = currentDeck[selectedIdxInt];
+            
+            // Check if this specific card ID is already picked
+            if (pickedCards.some(p => p.card.id === selectedCard.id)) return;
+            
+            // Mark visually in the deck
+            const cardElements = document.querySelectorAll('.card-wrapper');
+            let sourceRect = null;
+            
+            cardElements.forEach(el => {
+                if (parseInt(el.dataset.index) === selectedIdxInt) {
+                    el.classList.add('picked');
+                    el.style.opacity = '0'; // Hide from deck
+                    sourceRect = el.getBoundingClientRect();
+                }
+            });
+
+            // Add to picked list
+            const isReversed = Math.random() < 0.3;
+            pickedCards.push({
+                card: selectedCard,
+                reversed: isReversed,
+                position: `Lá bài ${pickedCards.length + 1}`
+            });
+
+            // Update Status
+            document.getElementById('status-text').innerText = `Đã chọn ${pickedCards.length}/3 lá bài`;
+
+            // Animate to Slot
+            const slotIndex = pickedCards.length - 1;
+            const slot = document.getElementById(`slot-${slotIndex}`);
+            if (slot) {
+                slot.classList.add('filled');
+                const miniCard = document.createElement('div');
+                miniCard.className = 'mini-card';
+                miniCard.style.backgroundImage = `url('https://www.transparenttextures.com/patterns/black-scales.png')`; // Back of card
+                // Add star effect or something
+                miniCard.innerHTML = `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:2rem;color:rgba(255,255,255,0.55);">✦</div>`;
+                slot.appendChild(miniCard);
+            }
+
+            if (pickedCards.length === 3) {
+                setTimeout(finishPicking, 1000);
+            }
+        }
+
+        function finishPicking() {
+            currentState = STATE.REVEALING;
+            document.getElementById('status-text').innerText = "hãy đón nhận thông điệp một cách tích cực";
+            document.getElementById('gesture-guide').style.opacity = '0';
+            
+            // Hide picked zone (we will move them to center scene)
+            document.getElementById('picked-zone').style.opacity = '0';
+            
+            renderDeck(); // Will switch to reveal layout
+            
+            setTimeout(() => {
+                // All cards revealed after animation
+                currentState = STATE.INTERPRETING;
+                document.getElementById('status-text').innerText = "Trải bài của bạn mang thông điệp gì?";
+
+                // Show the "Giải nghĩa" button now that all 3 cards are picked
+                const btn = document.getElementById('interpret-btn');
+                if (btn) {
+                    btn.style.display = 'inline-block';
+                    btn.onclick = openInterpretation;
+                }
+            }, 2500);
+        }
+
+        // --- 6. Interpretation (fully local, using CARD_DATA) ---
+        function buildLinkedMessage() {
+            const picked = pickedCards; // [{card, reversed, position}]
+            const d = picked.map(p => CARD_DATA[p.card.name]);
+            const n = picked.map(p => vnName(p.card.name));
+            const e = picked.map((p, i) => p.reversed ? d[i].revE : d[i].upE);
+            const a3 = picked[2].reversed ? d[2].revA : d[2].upA;
+
+            let msg = `Ba lá bài bạn vừa bốc được đang kể một câu chuyện nối tiếp nhau. ${n[0]} đại diện cho ${e[0]}. Đây là năng lượng nền mà bạn đã mang theo trong chặng đường vừa qua, dù nhận ra hay chưa.\n\n`;
+            msg += `Rồi ${n[1]} xuất hiện, mang đến ${e[1]}. Hãy đón nhận trọn vẹn điều này, bởi mỗi lá bài đều là một mảnh ghép cần thiết trong bức tranh chung của bạn.\n\n`;
+            msg += `Và mọi thứ đang dẫn lối tới ${n[2]} — ${e[2]}. ${a3} Hành trình phía trước vẫn luôn rộng mở hơn những gì bạn từng tưởng tượng.`;
+            return msg;
+        }
+
+        function renderLocalInterpretation() {
+            const content = document.getElementById('interpretation-content');
+
+            // Phần 1: Ý nghĩa chi tiết của từng lá bài
+            let html = '<div id="cards-meaning">';
+            pickedCards.forEach(p => {
+                const data = CARD_DATA[p.card.name];
+                const name = vnName(p.card.name);
+                const meaning = data ? (p.reversed ? data.rev : data.up) : '';
+                html += `<h3>${p.position}: ${name} ${p.reversed ? '(Ngược)' : '(Xuôi)'}</h3>`;
+                html += `<p>${meaning}</p>`;
+            });
+            html += '</div>';
+
+            // Phần 2: Thông điệp liên kết (150-200 chữ)
+            const linked = buildLinkedMessage().replace(/\n\n/g, '</p><p>');
+            html += `<div id="linked-message">
+                <h3>Thông điệp liên kết</h3>
+                <p>${linked}</p>
+            </div>`;
+
+            content.innerHTML = html;
+        }
+
+        function openInterpretation() {
+            // Show the full reading directly on the site — no external redirect
+            renderLocalInterpretation();
+            document.getElementById('interpretation-modal').style.display = 'block';
+            document.getElementById('status-text').innerText = "hãy đón nhận thông điệp một cách tích cực";
+        }
+
+        // --- 5. MediaPipe Setup ---
+        async function setupCamera() {
+            const videoElement = document.getElementById('webcam-preview');
+            
+            const hands = new Hands({locateFile: (file) => {
+                return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+            }});
+            
+            hands.setOptions({
+                maxNumHands: 1,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.7,
+                minTrackingConfidence: 0.7
+            });
+            
+            hands.onResults((results) => {
+                if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                    handleGesture(results.multiHandLandmarks[0]);
+                }
+            });
+            
+            const camera = new Camera(videoElement, {
+                onFrame: async () => {
+                    await hands.send({image: videoElement});
+                },
+                width: 320,
+                height: 240
+            });
+            
+            return camera;
+        }
+
+        // --- 7. Initialization ---
+        function startGame() {
+            if (assetsFailed) {
+                preloadDeckAssets();
+                return;
+            }
+            if (!assetsReady) {
+                updateIdleStatus();
+                return;
+            }
+            document.getElementById('start-btn').style.display = 'none';
+            document.getElementById('status-text').innerText = "Bánh xe định mệnh bắt đầu quay...";
+            
+            // Start Game Flow
+            currentDeck = shuffle([...FULL_DECK]); // Shuffle internal data
+            pickedCards = [];
+            
+            // INTRO ANIMATION
+            currentState = STATE.INTRO;
+            targetIndex = Math.floor(currentDeck.length / 2); 
+            currentIndex = currentDeck.length + 5; // Start way off
+            
+            renderDeck(); // Render cards
+            updateCardPositions(); // Initial position update
+        }
+
+        async function initCameraFlow() {
+             try {
+                const camera = await setupCamera();
+                await camera.start();
+                
+                // Camera success
+                cameraReady = true;
+                cameraError = false;
+                document.getElementById('start-btn').style.display = 'none';
+                updateIdleStatus();
+             } catch (e) {
+                console.error(e);
+                cameraReady = false;
+                cameraError = true;
+                document.getElementById('status-text').innerText = "Cần quyền truy cập camera để điều khiển bằng cử chỉ";
+                const btn = document.getElementById('start-btn');
+                btn.style.display = 'block';
+                btn.innerText = "Cho phép camera";
+                btn.onclick = () => {
+                    initCameraFlow(); // Retry
+                };
+             }
+        }
+        
+        // Auto-start camera on load
+        preloadDeckAssets();
+        initCameraFlow();
+
+        // Initialize Background
+        initStars();
+        
+        // Keyboard fallback for testing
+        window.addEventListener('keydown', (e) => {
+            if (currentState !== STATE.PICKING) return;
+            if (e.key === 'ArrowLeft') {
+                navigateDeck(-1);
+                highlightIcon('icon-left');
+            }
+            if (e.key === 'ArrowRight') {
+                navigateDeck(1);
+                highlightIcon('icon-right');
+            }
+            if (e.key === 'ArrowUp' || e.key === ' ') {
+                selectCard();
+                highlightIcon('icon-select');
+            }
+        });
+
+    </script>
+</body>
+</html>
